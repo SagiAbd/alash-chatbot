@@ -10,7 +10,7 @@ done
 echo "MySQL started"
 
 echo "Running migrations..."
-if alembic upgrade head; then
+if uv run alembic upgrade head; then
   echo "Migrations completed successfully"
 else
   echo "Migration failed"
