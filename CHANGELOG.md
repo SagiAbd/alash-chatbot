@@ -1,5 +1,14 @@
 # Changelog
 
+## [2026-03-27] (2)
+
+### Improved
+- Switched backend package manager from pip to uv — faster installs, reproducible lockfile (`uv.lock`)
+- Added `pyproject.toml` with Ruff config; `requirements.txt` retained for reference only
+- Updated `Dockerfile` and `Dockerfile.dev` to install uv and use `uv sync --frozen`
+
+---
+
 ## [2026-03-27]
 
 ### Added

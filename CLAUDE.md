@@ -62,9 +62,11 @@ docker compose -f docker-compose.dev.yml up
 
 ```bash
 cd backend
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+uv sync               # install deps from uv.lock
+uv run uvicorn app.main:app --reload --port 8000
 ```
+
+To add/remove packages edit `pyproject.toml` then run `uv lock && uv sync`.
 
 ### Frontend (standalone)
 
@@ -91,9 +93,9 @@ pnpm dev
 
 ```bash
 cd backend
-ruff format .       # format
-ruff check .        # lint
-ruff check . --fix  # auto-fix
+uv run ruff format .       # format
+uv run ruff check .        # lint
+uv run ruff check . --fix  # auto-fix
 ```
 
 ### Development Philosophy
@@ -109,10 +111,10 @@ Tests live in `backend/tests/`, mirroring source structure (e.g. `app/services/f
 
 ```bash
 cd backend
-pytest                          # all tests
-pytest tests/test_foo.py        # specific file
-pytest tests/test_foo.py::test_bar  # specific test
-pytest --cov=app                # with coverage
+uv run pytest                              # all tests
+uv run pytest tests/test_foo.py           # specific file
+uv run pytest tests/test_foo.py::test_bar # specific test
+uv run pytest --cov=app                   # with coverage
 ```
 
 - Use **real database** for integration tests — no mocks (mock/prod divergence has caused incidents)

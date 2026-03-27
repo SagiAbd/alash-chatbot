@@ -11,11 +11,14 @@ RUN apt-get update && apt-get install -y \
   curl \
   && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements file
-COPY requirements.txt .
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+
+# Copy dependency files
+COPY pyproject.toml uv.lock ./
 
 # Install Python packages
-RUN pip install --no-cache-dir -r requirements.txt
+RUN uv sync --frozen --no-install-project
 
 # Copy entrypoint script first
 COPY entrypoint.sh .
@@ -30,6 +33,7 @@ RUN mkdir -p uploads
 # Set Python path and environment
 ENV PYTHONPATH=/app
 ENV ENVIRONMENT=production
+ENV PATH="/app/.venv/bin:$PATH"
 
 # Run the application
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
