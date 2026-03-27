@@ -76,7 +76,54 @@ pnpm dev
 
 ## Code Conventions
 
-- Follow the skills: `python-code-standards`, `development-philosophy`
 - Factory pattern for LLM / embedding / vector store providers — add new providers there
 - All document processing is async; use background tasks for heavy operations
 - Agent logic lives in `services/agent/`; keep chat_service.py as a thin delegator
+
+### Python Standards
+
+- **Type hints** required on all new functions and classes, including return types
+- **Docstrings** required on all public APIs (Args + Returns)
+- **f-strings** exclusively — no `.format()` or `%`
+- **88-char line limit** enforced by Ruff
+- **Naming:** `snake_case` functions/variables, `PascalCase` classes, `UPPER_SNAKE_CASE` constants
+- **Imports:** stdlib → third-party → local, alphabetical within groups
+
+```bash
+cd backend
+ruff format .       # format
+ruff check .        # lint
+ruff check . --fix  # auto-fix
+```
+
+### Development Philosophy
+
+- Early returns over nested conditions
+- No abstractions until 2–3 real instances
+- Only modify code directly related to the task — no opportunistic cleanup
+- Validate only at system boundaries (user input, external APIs)
+
+## Testing
+
+Tests live in `backend/tests/`, mirroring source structure (e.g. `app/services/foo.py` → `tests/test_foo.py`).
+
+```bash
+cd backend
+pytest                          # all tests
+pytest tests/test_foo.py        # specific file
+pytest tests/test_foo.py::test_bar  # specific test
+pytest --cov=app                # with coverage
+```
+
+- Use **real database** for integration tests — no mocks (mock/prod divergence has caused incidents)
+- Use pytest fixtures for setup/teardown
+- One assertion concept per test; test behavior not internal state
+- Add regression tests for every bug fix
+
+## Git Workflow
+
+Commit format: `type: short description` (present tense, no trailing period)
+
+Types: `feat`, `fix`, `improve`, `refactor`, `test`, `docs`, `perf`
+
+After every meaningful change: update [CHANGELOG.md](CHANGELOG.md) with a dated entry.
