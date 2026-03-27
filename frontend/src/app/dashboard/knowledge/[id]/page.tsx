@@ -6,7 +6,6 @@ import { DocumentList } from "@/components/knowledge-base/document-list";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
 import { Upload, X } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { api, ApiError } from "@/lib/api";
 import { useDropzone } from "react-dropzone";
 import DashboardLayout from "@/components/layout/dashboard-layout";
@@ -58,6 +57,9 @@ export default function KnowledgeBasePage() {
           )
         );
         setListRefreshKey((k) => k + 1);
+        setTimeout(() => {
+          setQueuedFiles((prev) => prev.filter((entry) => !files.includes(entry.file)));
+        }, 2000);
       } catch (err) {
         const message = err instanceof ApiError ? err.message : "Upload failed";
         setQueuedFiles((prev) =>
@@ -83,10 +85,6 @@ export default function KnowledgeBasePage() {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
-      "application/pdf": [".pdf"],
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
-      "text/plain": [".txt"],
-      "text/markdown": [".md"],
       "application/json": [".json"],
     },
     multiple: true,
@@ -101,28 +99,13 @@ export default function KnowledgeBasePage() {
         <h1 className="text-3xl font-bold">Knowledge Base</h1>
       </div>
 
-      {/* Inline drop zone */}
-      <div
-        {...getRootProps()}
-        className={cn(
-          "border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors mb-6",
-          isDragActive
-            ? "border-primary bg-primary/5"
-            : "border-muted-foreground/25 hover:border-primary/50"
-        )}
-      >
+      {/* Upload button */}
+      <div {...getRootProps()} className="mb-6">
         <input {...getInputProps()} />
-        <Upload className="w-8 h-8 mx-auto mb-3 text-muted-foreground" />
-        {isDragActive ? (
-          <p className="text-primary font-medium">Drop files here…</p>
-        ) : (
-          <>
-            <p className="font-medium">Drag & drop files here, or click to select</p>
-            <p className="text-sm text-muted-foreground mt-1">
-              PDF, DOCX, TXT, MD, JSON
-            </p>
-          </>
-        )}
+        <Button variant="outline" className="gap-2">
+          <Upload className="h-4 w-4" />
+          Upload documents
+        </Button>
       </div>
 
       {/* Upload queue — transient per-session feedback */}

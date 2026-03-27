@@ -1,6 +1,8 @@
-from typing import Optional, List
 from datetime import datetime
+from typing import List, Optional
+
 from pydantic import BaseModel
+
 
 class KnowledgeBaseBase(BaseModel):
     name: str
@@ -65,6 +67,7 @@ class DocumentResponse(DocumentBase):
     created_at: datetime
     updated_at: datetime
     processing_tasks: List[ProcessingTask] = []
+    analysis: Optional[dict] = None
 
     class Config:
         from_attributes = True
@@ -79,7 +82,3 @@ class KnowledgeBaseResponse(KnowledgeBaseBase):
     class Config:
         from_attributes = True
 
-class PreviewRequest(BaseModel):
-    document_ids: List[int]
-    chunk_size: int = 1000
-    chunk_overlap: int = 200 

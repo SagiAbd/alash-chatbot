@@ -13,8 +13,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      chromadb:
-        condition: service_started
       minio:
         condition: service_started
     restart: on-failure
@@ -64,14 +62,14 @@ services:
       retries: 5
       start_period: 10s
 
-  chromadb:
-    image: chromadb/chroma:latest
-    ports:
-      - "8001:8000"
-    volumes:
-      - chroma_data:/chroma/chroma
-    networks:
-      - app_network
+  # chromadb:
+  #   image: chromadb/chroma:latest
+  #   ports:
+  #     - "8001:8000"
+  #   volumes:
+  #     - chroma_data:/chroma/chroma
+  #   networks:
+  #     - app_network
 
   # For Qdrant, Remove the comment and run the following command to start the service
   # qdrant:
@@ -115,7 +113,7 @@ services:
 
 volumes:
   mysql_data:
-  chroma_data:
+  # chroma_data:
   minio_data:
   # qdrant_data:
 

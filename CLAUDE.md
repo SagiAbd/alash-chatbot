@@ -4,11 +4,14 @@
 
 RAG-based chatbot platform (alash-chatbot). Users upload documents into knowledge bases, which are chunked, embedded, and stored in a vector database. A LangGraph agent handles retrieval-augmented chat with multi-turn context and source citations. Supports multiple LLM providers (OpenAI, DeepSeek, Ollama, OpenRouter, DashScope) and vector stores (ChromaDB, Qdrant).
 
+## Critical Rules
+
+- **No vector store usage.** Do not use ChromaDB, Qdrant, or any vector store anywhere in this project — not in document processing, not in retrieval, not in the chatbot agent. The vector store modules exist in the codebase but must not be called. Retrieval will be redesigned without vector search.
+
 ## Architecture
 
 - **Backend:** FastAPI + SQLAlchemy (MySQL) + LangChain + LangGraph + Alembic
 - **Frontend:** Next.js 14 + TypeScript + Tailwind CSS + Shadcn/UI + Vercel AI SDK
-- **Vector DB:** ChromaDB (default) or Qdrant
 - **Object Storage:** MinIO (S3-compatible)
 - **Reverse Proxy:** Nginx
 - **Orchestration:** Docker Compose

@@ -1,4 +1,4 @@
-# docker compose -f docker-compose.dev.yml up --build
+# docker compose -f docker-compose.dev.yml up --build -d
 
 services:
   nginx-dev:
@@ -45,7 +45,6 @@ services:
       - app_network
     depends_on:
       - db
-      - chromadb
       - minio
     restart: on-failure
     deploy:
@@ -99,14 +98,14 @@ services:
     networks:
       - app_network
 
-  chromadb:
-    image: chromadb/chroma:latest
-    ports:
-      - "8001:8000"
-    volumes:
-      - chroma_data:/chroma/chroma
-    networks:
-      - app_network
+  # chromadb:
+  #   image: chromadb/chroma:latest
+  #   ports:
+  #     - "8001:8000"
+  #   volumes:
+  #     - chroma_data:/chroma/chroma
+  #   networks:
+  #     - app_network
 
   minio:
     image: minio/minio:latest
@@ -124,7 +123,7 @@ services:
 
 volumes:
   mysql_data:
-  chroma_data:
+  # chroma_data:
   minio_data:
 
 networks:

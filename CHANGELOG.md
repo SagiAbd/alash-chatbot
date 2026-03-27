@@ -1,5 +1,31 @@
 # Changelog
 
+## [2026-03-28]
+
+### Added
+- LLM-based book indexing: extracts TOC, metadata, and per-work text segments from JSON OCR files
+- Book content modal in document list: shows author, title, year, summary, TOC, and collapsible per-work text
+- Cancel endpoint for pending/processing tasks (`DELETE /{kb_id}/tasks/{task_id}`)
+- Per-document chunks endpoint (`GET /{kb_id}/documents/{doc_id}/chunks`)
+- Tasks endpoint for page-reload-stable polling (`GET /{kb_id}/tasks`)
+- `analysis` JSON column on `Document` model storing LLM-extracted book metadata
+
+### Improved
+- Document processing runs in a thread pool (`asyncio.to_thread`) — no longer blocks the event loop during LLM/MinIO/DB operations
+- Processed files renamed to `Author - Title.json` in MinIO
+- Upload zone replaced with compact button; auto-clears "queued" entries after 2 seconds
+- Document display name shows "Author — Title" when analysis is available
+- Works in modal sorted by page number; each work is individually collapsible; sections (Summary, TOC, Works) are collapsible
+- Polling stops cleanly when all tasks complete; cancelling one task no longer stops polling for others
+- "Added" timestamp correctly parsed as UTC (fixes 5-hour offset bug)
+
+### Removed
+- Vector store removed from all document processing, deletion, and retrieval paths
+- ChromaDB service commented out in both docker-compose files
+- `test-retrieval` endpoint removed
+
+---
+
 ## [2026-03-27] (2)
 
 ### Improved

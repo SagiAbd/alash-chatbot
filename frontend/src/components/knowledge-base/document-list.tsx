@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatDistanceToNow } from "date-fns";
@@ -14,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { FileText, Trash2, List, Loader2 } from "lucide-react";
+import { FileText, Trash2, BookOpen, Loader2, ChevronDown, ChevronRight } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -30,6 +30,17 @@ interface ProcessingTask {
   error_message: string | null;
 }
 
+interface BookAnalysis {
+  summary: string;
+  metadata: {
+    book_title: string;
+    main_author: string;
+    publisher: string;
+    year: string;
+  };
+  works: Array<{ title: string; start_page: number; end_page: number }>;
+}
+
 interface Document {
   id: number;
   file_name: string;
@@ -38,6 +49,7 @@ interface Document {
   content_type: string;
   created_at: string;
   processing_tasks: ProcessingTask[];
+  analysis: BookAnalysis | null;
 }
 
 interface PendingTask {
@@ -50,20 +62,29 @@ interface PendingTask {
 
 interface Chunk {
   id: string;
-  chunk_metadata: { page_content?: string; [key: string]: unknown };
+  chunk_metadata: {
+    page_content?: string;
+    work_title?: string;
+    main_author?: string;
+    book_title?: string;
+    start_page?: number;
+    end_page?: number;
+    [key: string]: unknown;
+  };
 }
 
-// Unified row shown in the table
 interface Row {
   key: string;
-  docId: number | null; // null = pending task not yet a document
+  docId: number | null;
   taskId: number | null;
   file_name: string;
+  display_name: string;
   file_size: number | null;
   content_type: string | null;
   created_at: string | null;
   status: string;
   error_message: string | null;
+  analysis: BookAnalysis | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -72,26 +93,90 @@ function isActive(status: string) {
   return status === "pending" || status === "processing";
 }
 
+function displayName(file_name: string, analysis: BookAnalysis | null): string {
+  const author = analysis?.metadata?.main_author?.trim();
+  const title = analysis?.metadata?.book_title?.trim();
+  if (author && title) return `${author} — ${title}`;
+  if (title) return title;
+  return file_name;
+}
+
 function fileIcon(contentType: string | null, fileName: string) {
-  const ct = contentType?.toLowerCase() ?? "";
   const ext = fileName.split(".").pop() ?? "";
-  if (ct.includes("pdf")) return <FileIcon extension="pdf" {...defaultStyles.pdf} />;
-  if (ct.includes("doc")) return <FileIcon extension="doc" {...defaultStyles.docx} />;
-  if (ct.includes("txt")) return <FileIcon extension="txt" {...defaultStyles.txt} />;
-  if (ct.includes("md") || ext === "md") return <FileIcon extension="md" {...defaultStyles.md} />;
+  if (contentType?.includes("pdf")) return <FileIcon extension="pdf" {...defaultStyles.pdf} />;
+  if (contentType?.includes("doc")) return <FileIcon extension="doc" {...defaultStyles.docx} />;
   return <FileIcon extension={ext} color="#E2E8F0" labelColor="#94A3B8" />;
 }
 
-function statusBadge(status: string) {
-  if (status === "completed")
-    return <Badge variant="secondary">{status}</Badge>;
+function statusBadge(status: string, errorMsg: string | null) {
+  if (status === "completed") return <Badge variant="secondary">completed</Badge>;
   if (status === "failed")
-    return <Badge variant="destructive">{status}</Badge>;
+    return (
+      <div className="flex flex-col gap-1">
+        <Badge variant="destructive">failed</Badge>
+        {errorMsg && (
+          <p className="text-xs text-destructive max-w-[200px] break-words">{errorMsg}</p>
+        )}
+      </div>
+    );
   return (
     <Badge variant="default" className="gap-1">
       <Loader2 className="h-3 w-3 animate-spin" />
       {status}
     </Badge>
+  );
+}
+
+// ─── Collapsible section ──────────────────────────────────────────────────────
+
+function Section({
+  title,
+  defaultOpen = true,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1 w-full text-left font-semibold text-xs uppercase tracking-wide text-muted-foreground mb-2 hover:text-foreground transition-colors"
+      >
+        {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+        {title}
+      </button>
+      {open && children}
+    </div>
+  );
+}
+
+function WorkChunk({ chunk, idx }: { chunk: Chunk; idx: number }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="py-3">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-baseline justify-between gap-4 w-full text-left hover:text-foreground transition-colors"
+      >
+        <span className="font-medium flex items-center gap-1">
+          {open ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
+          {chunk.chunk_metadata.work_title ?? `Work ${idx + 1}`}
+        </span>
+        {chunk.chunk_metadata.start_page != null && (
+          <span className="text-xs text-muted-foreground whitespace-nowrap">
+            pp. {chunk.chunk_metadata.start_page}–{chunk.chunk_metadata.end_page}
+          </span>
+        )}
+      </button>
+      {open && (
+        <p className="whitespace-pre-wrap leading-relaxed text-muted-foreground mt-2 pl-4">
+          {chunk.chunk_metadata.page_content ?? ""}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -105,8 +190,8 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
   const [rows, setRows] = useState<Row[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [chunkModal, setChunkModal] = useState<{ docId: number; fileName: string; chunks: Chunk[] } | null>(null);
-  const [loadingChunks, setLoadingChunks] = useState<Record<number, boolean>>({});
+  const [modal, setModal] = useState<{ row: Row; chunks: Chunk[] } | null>(null);
+  const [loadingModal, setLoadingModal] = useState<Record<string, boolean>>({});
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -118,15 +203,16 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
         docId: doc.id,
         taskId: task?.id ?? null,
         file_name: doc.file_name,
+        display_name: displayName(doc.file_name, doc.analysis),
         file_size: doc.file_size,
         content_type: doc.content_type,
         created_at: doc.created_at,
         status: task?.status ?? "completed",
         error_message: task?.error_message ?? null,
+        analysis: doc.analysis,
       };
     });
 
-    // Pending tasks that haven't been linked to a Document yet
     const docFileNames = new Set(documents.map((d) => d.file_name));
     const pendingRows: Row[] = pendingTasks
       .filter((t) => t.file_name && !docFileNames.has(t.file_name))
@@ -135,11 +221,13 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
         docId: null,
         taskId: t.task_id,
         file_name: t.file_name ?? "Unknown",
+        display_name: t.file_name ?? "Unknown",
         file_size: t.file_size,
         content_type: null,
         created_at: null,
         status: t.status,
         error_message: t.error_message,
+        analysis: null,
       }));
 
     return [...pendingRows, ...docRows];
@@ -163,7 +251,6 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
     }
   }, [knowledgeBaseId]);
 
-  // Poll while any row is active
   useEffect(() => {
     let cancelled = false;
 
@@ -186,12 +273,15 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
   // ── Actions ─────────────────────────────────────────────────────────────────
 
   const handleDelete = async (row: Row) => {
-    if (!row.docId) return; // can't delete a still-pending task
     setDeletingIds((s) => new Set(s).add(row.key));
     try {
-      await api.delete(`/api/knowledge-base/${knowledgeBaseId}/documents/${row.docId}`);
+      if (row.docId !== null) {
+        await api.delete(`/api/knowledge-base/${knowledgeBaseId}/documents/${row.docId}`);
+      } else if (row.taskId !== null) {
+        await api.delete(`/api/knowledge-base/${knowledgeBaseId}/tasks/${row.taskId}`);
+      }
       setRows((prev) => prev.filter((r) => r.key !== row.key));
-      if (chunkModal?.docId === row.docId) setChunkModal(null);
+      if (modal?.row.key === row.key) setModal(null);
     } finally {
       setDeletingIds((s) => {
         const next = new Set(s);
@@ -201,16 +291,16 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
     }
   };
 
-  const openChunks = async (row: Row) => {
+  const openModal = async (row: Row) => {
     if (!row.docId) return;
-    setLoadingChunks((prev) => ({ ...prev, [row.docId!]: true }));
+    setLoadingModal((prev) => ({ ...prev, [row.key]: true }));
     try {
       const chunks: Chunk[] = await api.get(
         `/api/knowledge-base/${knowledgeBaseId}/documents/${row.docId}/chunks`
       );
-      setChunkModal({ docId: row.docId, fileName: row.file_name, chunks });
+      setModal({ row, chunks });
     } finally {
-      setLoadingChunks((prev) => ({ ...prev, [row.docId!]: false }));
+      setLoadingModal((prev) => ({ ...prev, [row.key]: false }));
     }
   };
 
@@ -260,15 +350,15 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
           <TableRow>
             <TableHead>Name</TableHead>
             <TableHead>Size</TableHead>
-            <TableHead>Created</TableHead>
+            <TableHead>Added</TableHead>
             <TableHead>Status</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {rows.map((row) => {
-            const chunksLoading = row.docId !== null && loadingChunks[row.docId];
             const deleting = deletingIds.has(row.key);
+            const modalLoading = loadingModal[row.key];
 
             return (
               <TableRow key={row.key}>
@@ -277,7 +367,9 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
                     <div className="w-6 h-6 flex-shrink-0">
                       {fileIcon(row.content_type, row.file_name)}
                     </div>
-                    <span className="truncate max-w-[280px]">{row.file_name}</span>
+                    <span className="truncate max-w-[300px]" title={row.file_name}>
+                      {row.display_name}
+                    </span>
                   </div>
                 </TableCell>
                 <TableCell>
@@ -287,10 +379,13 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
                 </TableCell>
                 <TableCell>
                   {row.created_at
-                    ? formatDistanceToNow(new Date(row.created_at), { addSuffix: true })
+                    ? formatDistanceToNow(
+                        new Date(row.created_at.endsWith("Z") ? row.created_at : row.created_at + "Z"),
+                        { addSuffix: true }
+                      )
                     : "—"}
                 </TableCell>
-                <TableCell>{statusBadge(row.status)}</TableCell>
+                <TableCell>{statusBadge(row.status, row.error_message)}</TableCell>
                 <TableCell className="text-right">
                   <div className="flex items-center justify-end gap-1">
                     {row.docId !== null && row.status === "completed" && (
@@ -298,32 +393,30 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8"
-                        onClick={() => openChunks(row)}
-                        title="View chunks"
+                        onClick={() => openModal(row)}
+                        title="View book content"
                       >
-                        {chunksLoading ? (
+                        {modalLoading ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
-                          <List className="h-4 w-4" />
+                          <BookOpen className="h-4 w-4" />
                         )}
                       </Button>
                     )}
-                    {row.docId !== null && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive hover:text-destructive"
-                        onClick={() => handleDelete(row)}
-                        disabled={deleting}
-                        title="Delete document"
-                      >
-                        {deleting ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-4 w-4" />
-                        )}
-                      </Button>
-                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-destructive hover:text-destructive"
+                      onClick={() => handleDelete(row)}
+                      disabled={deleting}
+                      title={row.docId ? "Delete document" : "Cancel processing"}
+                    >
+                      {deleting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                    </Button>
                   </div>
                 </TableCell>
               </TableRow>
@@ -332,26 +425,67 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
         </TableBody>
       </Table>
 
-      {/* Chunk viewer modal */}
-      <Dialog open={chunkModal !== null} onOpenChange={(open) => !open && setChunkModal(null)}>
-        <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle className="truncate pr-6">{chunkModal?.fileName}</DialogTitle>
-          </DialogHeader>
-          <div className="overflow-y-auto flex-1 divide-y text-sm pr-1">
-            {chunkModal?.chunks.length === 0 && (
-              <p className="text-muted-foreground py-4 text-center">No chunks found.</p>
+      {/* Book content modal */}
+      <Dialog open={modal !== null} onOpenChange={(open) => !open && setModal(null)}>
+        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+          <DialogHeader className="pb-2">
+            {modal?.row.analysis?.metadata.main_author && (
+              <p className="text-sm text-muted-foreground font-medium uppercase tracking-wide">
+                {modal.row.analysis.metadata.main_author}
+              </p>
             )}
-            {chunkModal?.chunks.map((chunk, idx) => (
-              <div key={chunk.id} className="py-4">
-                <p className="text-xs text-muted-foreground mb-2 font-mono">
-                  Chunk {idx + 1} of {chunkModal.chunks.length}
-                </p>
-                <p className="whitespace-pre-wrap leading-relaxed">
-                  {chunk.chunk_metadata?.page_content ?? JSON.stringify(chunk.chunk_metadata)}
-                </p>
-              </div>
-            ))}
+            <DialogTitle className="text-xl leading-tight">
+              {modal?.row.analysis?.metadata.book_title || modal?.row.display_name}
+            </DialogTitle>
+            {(modal?.row.analysis?.metadata.year || modal?.row.analysis?.metadata.publisher) && (
+              <p className="text-sm text-muted-foreground">
+                {[modal.row.analysis?.metadata.year, modal.row.analysis?.metadata.publisher]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            )}
+          </DialogHeader>
+
+          <div className="overflow-y-auto flex-1 space-y-6 pr-1 text-sm">
+            {/* Summary */}
+            {modal?.row.analysis?.summary && (
+              <Section title="Summary">
+                <p className="leading-relaxed">{modal.row.analysis.summary}</p>
+              </Section>
+            )}
+
+            {/* Table of contents */}
+            {modal?.row.analysis?.works && modal.row.analysis.works.length > 0 && (
+              <Section title={`Table of Contents (${modal.row.analysis.works.length} works)`}>
+                <ol className="space-y-1">
+                  {modal.row.analysis.works.map((w, i) => (
+                    <li key={i} className="flex justify-between gap-4">
+                      <span className="text-foreground">{w.title}</span>
+                      <span className="text-muted-foreground whitespace-nowrap text-xs mt-0.5">
+                        pp. {w.start_page}–{w.end_page}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              </Section>
+            )}
+
+            {/* Works content */}
+            {modal && modal.chunks.length > 0 && (
+              <Section title={`Works (${modal.chunks.length})`} defaultOpen={false}>
+                <div className="divide-y">
+                  {[...modal.chunks]
+                    .sort((a, b) => (a.chunk_metadata.start_page ?? 0) - (b.chunk_metadata.start_page ?? 0))
+                    .map((chunk, idx) => (
+                      <WorkChunk key={chunk.id} chunk={chunk} idx={idx} />
+                    ))}
+                </div>
+              </Section>
+            )}
+
+            {modal && modal.chunks.length === 0 && (
+              <p className="text-muted-foreground text-center py-4">No content available.</p>
+            )}
           </div>
         </DialogContent>
       </Dialog>

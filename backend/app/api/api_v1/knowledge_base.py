@@ -1,42 +1,44 @@
+import asyncio
 import hashlib
-from typing import List, Any, Dict
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, Query
-from sqlalchemy.orm import Session
-from langchain_chroma import Chroma
-from sqlalchemy import text
 import logging
 from datetime import datetime, timedelta
-from pydantic import BaseModel
-from sqlalchemy.orm import selectinload
-import time
-import asyncio
+from typing import Any, List
 
-from app.db.session import get_db
-from app.models.user import User
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Query,
+    UploadFile,
+)
+from minio.error import MinioException
+from sqlalchemy.orm import Session, selectinload
+
+from app.core.config import settings
+from app.core.minio import get_minio_client
 from app.core.security import get_current_user
-from app.models.knowledge import KnowledgeBase, Document, ProcessingTask, DocumentChunk, DocumentUpload
+from app.db.session import get_db
+from app.models.knowledge import (
+    Document,
+    DocumentChunk,
+    DocumentUpload,
+    KnowledgeBase,
+    ProcessingTask,
+)
+from app.models.user import User
 from app.schemas.knowledge import (
+    DocumentResponse,
     KnowledgeBaseCreate,
     KnowledgeBaseResponse,
     KnowledgeBaseUpdate,
-    DocumentResponse,
-    PreviewRequest
 )
-from app.services.document_processor import process_document_background, upload_document, preview_document, PreviewResult
-from app.core.config import settings
-from app.core.minio import get_minio_client
-from minio.error import MinioException
-from app.services.vector_store import VectorStoreFactory
-from app.services.embedding.embedding_factory import EmbeddingsFactory
+from app.services.document_processor import process_document_background
 
 router = APIRouter()
 
 logger = logging.getLogger(__name__)
 
-class TestRetrievalRequest(BaseModel):
-    query: str
-    kb_id: int
-    top_k: int
 
 @router.post("", response_model=KnowledgeBaseResponse)
 def create_knowledge_base(
@@ -160,22 +162,9 @@ async def delete_knowledge_base(
         raise HTTPException(status_code=404, detail="Knowledge base not found")
     
     try:
-        # Get all document file paths before deletion
-        document_paths = [doc.file_path for doc in kb.documents]
-        
-        # Initialize services
         minio_client = get_minio_client()
-        embeddings = EmbeddingsFactory.create()
-
-        vector_store = VectorStoreFactory.create(
-            store_type=settings.VECTOR_STORE_TYPE,
-            collection_name=f"kb_{kb_id}",
-            embedding_function=embeddings,
-        )
-        
-        # Clean up external resources first
         cleanup_errors = []
-        
+
         # 1. Clean up MinIO files
         try:
             # Delete all objects with prefix kb_{kb_id}/
@@ -187,15 +176,7 @@ async def delete_knowledge_base(
             cleanup_errors.append(f"Failed to clean up MinIO files: {str(e)}")
             logger.error(f"MinIO cleanup error for kb {kb_id}: {str(e)}")
         
-        # 2. Clean up vector store
-        try:
-            vector_store._store.delete_collection(f"kb_{kb_id}")
-            logger.info(f"Cleaned up vector store for knowledge base {kb_id}")
-        except Exception as e:
-            cleanup_errors.append(f"Failed to clean up vector store: {str(e)}")
-            logger.error(f"Vector store cleanup error for kb {kb_id}: {str(e)}")
-        
-        # Finally, delete database records in a single transaction
+        # 2. Delete database records
         db.delete(kb)
         db.commit()
         
@@ -294,47 +275,6 @@ async def upload_kb_documents(
     
     return results
 
-@router.post("/{kb_id}/documents/preview")
-async def preview_kb_documents(
-    kb_id: int,
-    preview_request: PreviewRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-) -> Dict[int, PreviewResult]:
-    """
-    Preview multiple documents' chunks.
-    """
-    results = {}
-    for doc_id in preview_request.document_ids:
-        document = db.query(Document).join(KnowledgeBase).filter(
-            Document.id == doc_id,
-            Document.knowledge_base_id == kb_id,
-            KnowledgeBase.user_id == current_user.id
-        ).first()
-        
-        if document:
-            file_path = document.file_path
-        else:
-            upload = db.query(DocumentUpload).join(KnowledgeBase).filter(
-                DocumentUpload.id == doc_id,
-                DocumentUpload.knowledge_base_id == kb_id,
-                KnowledgeBase.user_id == current_user.id
-            ).first()
-            
-            if not upload:
-                raise HTTPException(status_code=404, detail=f"Document {doc_id} not found")
-            
-            file_path = upload.temp_path
-        
-        preview = await preview_document(
-            file_path,
-            chunk_size=preview_request.chunk_size,
-            chunk_overlap=preview_request.chunk_overlap
-        )
-        results[doc_id] = preview
-    
-    return results
-
 @router.post("/{kb_id}/documents/process")
 async def process_kb_documents(
     kb_id: int,
@@ -346,8 +286,6 @@ async def process_kb_documents(
     """
     Process multiple documents asynchronously.
     """
-    start_time = time.time()
-    
     kb = db.query(KnowledgeBase).filter(
         KnowledgeBase.id == kb_id,
         KnowledgeBase.user_id == current_user.id
@@ -420,12 +358,12 @@ async def add_processing_tasks_to_queue(task_data, kb_id):
     """Helper function to add document processing tasks to the queue without blocking the main response."""
     for data in task_data:
         asyncio.create_task(
-            process_document_background(
+            asyncio.to_thread(
+                process_document_background,
                 data["temp_path"],
                 data["file_name"],
                 kb_id,
                 data["task_id"],
-                None
             )
         )
     logger.info(f"Added {len(task_data)} document processing tasks to queue")
@@ -498,6 +436,51 @@ async def get_kb_tasks(
         }
         for t in tasks
     ]
+
+
+@router.delete("/{kb_id}/tasks/{task_id}")
+async def cancel_processing_task(
+    *,
+    db: Session = Depends(get_db),
+    kb_id: int,
+    task_id: int,
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """
+    Cancel a pending or processing task.
+
+    Removes the task and its associated upload record, and deletes the
+    temporary file from MinIO. The background worker may still complete
+    if it is already mid-flight, but the task record will be gone.
+    """
+    task = (
+        db.query(ProcessingTask)
+        .options(selectinload(ProcessingTask.document_upload))
+        .join(KnowledgeBase)
+        .filter(
+            ProcessingTask.id == task_id,
+            ProcessingTask.knowledge_base_id == kb_id,
+            KnowledgeBase.user_id == current_user.id,
+        )
+        .first()
+    )
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    # Delete temp MinIO file
+    upload = task.document_upload
+    if upload and upload.temp_path:
+        try:
+            minio_client = get_minio_client()
+            minio_client.remove_object(settings.MINIO_BUCKET_NAME, upload.temp_path)
+        except Exception as exc:
+            logger.warning(f"Could not delete temp file for task {task_id}: {exc}")
+
+    if upload:
+        db.delete(upload)
+    db.delete(task)
+    db.commit()
+    return {"message": "Task cancelled"}
 
 
 @router.get("/{kb_id}/documents/tasks")
@@ -607,22 +590,7 @@ async def delete_document(
         cleanup_errors.append(f"MinIO cleanup failed: {str(e)}")
         logger.error(f"MinIO cleanup error for document {doc_id}: {str(e)}")
 
-    # 2. Delete from vector store
-    try:
-        embeddings = EmbeddingsFactory.create()
-        vector_store = VectorStoreFactory.create(
-            store_type=settings.VECTOR_STORE_TYPE,
-            collection_name=f"kb_{kb_id}",
-            embedding_function=embeddings,
-        )
-        chunk_ids = [c.id for c in db.query(DocumentChunk).filter(DocumentChunk.document_id == doc_id).all()]
-        if chunk_ids:
-            vector_store._store.delete(ids=chunk_ids)
-    except Exception as e:
-        cleanup_errors.append(f"Vector store cleanup failed: {str(e)}")
-        logger.error(f"Vector store cleanup error for document {doc_id}: {str(e)}")
-
-    # 3. Delete DB records (chunks, tasks, document)
+    # 2. Delete DB records (chunks, tasks, document)
     db.query(DocumentChunk).filter(DocumentChunk.document_id == doc_id).delete()
     db.query(ProcessingTask).filter(ProcessingTask.document_id == doc_id).delete()
     db.delete(document)
@@ -664,47 +632,3 @@ async def get_document_chunks(
     return [{"id": c.id, "chunk_metadata": c.chunk_metadata} for c in chunks]
 
 
-@router.post("/test-retrieval")
-async def test_retrieval(
-    request: TestRetrievalRequest,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-) -> Any:
-    """
-    Test retrieval quality for a given query against a knowledge base.
-    """
-    try:
-        kb = db.query(KnowledgeBase).filter(
-            KnowledgeBase.id == request.kb_id,
-            KnowledgeBase.user_id == current_user.id
-        ).first()
-        
-        if not kb:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Knowledge base {request.kb_id} not found",
-            )
-        
-        embeddings = EmbeddingsFactory.create()
-        
-        vector_store = VectorStoreFactory.create(
-            store_type=settings.VECTOR_STORE_TYPE,
-            collection_name=f"kb_{request.kb_id}",
-            embedding_function=embeddings,
-        )
-        
-        results = vector_store.similarity_search_with_score(request.query, k=request.top_k)
-        
-        response = []
-        for doc, score in results:
-            response.append({
-                "content": doc.page_content,
-                "metadata": doc.metadata,
-                "score": float(score)
-            })
-            
-        return {"results": response}
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))

@@ -32,6 +32,7 @@ class Document(Base, TimestampMixin):
     content_type = Column(String(100), nullable=False)  # MIME type
     file_hash = Column(String(64), index=True)  # SHA-256 hash of file content
     knowledge_base_id = Column(Integer, ForeignKey("knowledge_bases.id"), nullable=False)
+    analysis = Column(JSON, nullable=True)  # BookIndex output from book_indexer
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
