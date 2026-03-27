@@ -76,6 +76,14 @@ class Settings(BaseSettings):
         "OLLAMA_EMBEDDINGS_MODEL", "nomic-embed-text"
     )  # Added this line
 
+    # OpenRouter settings
+    OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
+    OPENROUTER_API_BASE: str = os.getenv("OPENROUTER_API_BASE", "https://openrouter.ai/api/v1")
+    OPENROUTER_MODEL: str = os.getenv("OPENROUTER_MODEL", "qwen/qwen3.5-35b-a3b")
+    OPENROUTER_EMBEDDINGS_MODEL: str = os.getenv("OPENROUTER_EMBEDDINGS_MODEL", "qwen/qwen3-embedding-8b")
+    OPENROUTER_SITE_URL: str = os.getenv("OPENROUTER_SITE_URL", "")
+    OPENROUTER_SITE_NAME: str = os.getenv("OPENROUTER_SITE_NAME", "")
+
     class Config:
         env_file = ".env"
 

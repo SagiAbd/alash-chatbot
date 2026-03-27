@@ -126,6 +126,7 @@ export function DocumentUploadSteps({
         [".docx"],
       "text/plain": [".txt"],
       "text/markdown": [".md"],
+      "application/json": [".json"],
     },
   });
 
@@ -409,7 +410,7 @@ export function DocumentUploadSteps({
                   Drop your files here or click to browse
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Supports PDF, DOCX, TXT, and MD files
+                  Supports PDF, DOCX, TXT, MD, and JSON files
                 </p>
               </div>
               {files.length > 0 && (

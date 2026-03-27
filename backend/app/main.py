@@ -1,5 +1,9 @@
 import logging
 
+from langchain.globals import set_verbose, set_debug
+set_verbose(True)
+set_debug(True)
+
 from app.api.api_v1.api import api_router
 from app.api.openapi.api import router as openapi_router
 from app.core.config import settings
@@ -30,6 +34,9 @@ async def startup_event():
     # Run database migrations
     migrator = DatabaseMigrator(settings.get_database_url)
     migrator.run_migrations()
+    # Initialize LangGraph agent
+    from app.services.agent.graph import init_graph
+    init_graph()
 
 
 @app.get("/")

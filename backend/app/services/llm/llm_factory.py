@@ -2,7 +2,6 @@ from typing import Optional
 from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
 from langchain_deepseek import ChatDeepSeek
-from langchain_ollama import OllamaLLM
 from app.core.config import settings
 
 class LLMFactory:
@@ -34,13 +33,20 @@ class LLMFactory:
                 api_key=settings.DEEPSEEK_API_KEY,
                 api_base=settings.DEEPSEEK_API_BASE
             )
-        elif provider.lower() == "ollama":
-            # Initialize Ollama model
-            return OllamaLLM(
-                model=settings.OLLAMA_MODEL,
-                base_url=settings.OLLAMA_API_BASE,
+        elif provider.lower() == "openrouter":
+            headers = {}
+            if settings.OPENROUTER_SITE_URL:
+                headers["HTTP-Referer"] = settings.OPENROUTER_SITE_URL
+            if settings.OPENROUTER_SITE_NAME:
+                headers["X-OpenRouter-Title"] = settings.OPENROUTER_SITE_NAME
+            
+            return ChatOpenAI(
                 temperature=temperature,
-                streaming=streaming
+                streaming=streaming,
+                model=settings.OPENROUTER_MODEL,
+                openai_api_key=settings.OPENROUTER_API_KEY,
+                openai_api_base=settings.OPENROUTER_API_BASE,
+                default_headers=headers
             )
         # Add more providers here as needed
         # elif provider.lower() == "anthropic":

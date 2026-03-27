@@ -24,6 +24,7 @@ from app.core.minio import get_minio_client
 from app.models.knowledge import ProcessingTask, Document, DocumentChunk
 from app.services.chunk_record import ChunkRecord
 import uuid
+import json
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import UnstructuredFileLoader
 from minio.error import MinioException
@@ -31,6 +32,24 @@ from minio import Minio
 from minio.commonconfig import CopySource
 from app.services.vector_store import VectorStoreFactory
 from app.services.embedding.embedding_factory import EmbeddingsFactory
+
+class JSONListLoader:
+    def __init__(self, file_path: str):
+        self.file_path = file_path
+
+    def load(self) -> List[LangchainDocument]:
+        with open(self.file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        if not isinstance(data, list):
+            data = [data]
+            
+        docs = []
+        for item in data:
+            text = item.get("text", "")
+            metadata = {k: v for k, v in item.items() if k != "text"}
+            docs.append(LangchainDocument(page_content=text, metadata=metadata))
+        return docs
 
 class UploadResult(BaseModel):
     file_path: str
@@ -152,7 +171,8 @@ async def upload_document(file: UploadFile, kb_id: int) -> UploadResult:
         ".pdf": "application/pdf",
         ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         ".md": "text/markdown",
-        ".txt": "text/plain"
+        ".txt": "text/plain",
+        ".json": "application/json"
     }
     
     _, ext = os.path.splitext(file_name)
@@ -204,16 +224,26 @@ async def preview_document(file_path: str, chunk_size: int = 1000, chunk_overlap
             loader = Docx2txtLoader(temp_path)
         elif ext == ".md":
             loader = UnstructuredMarkdownLoader(temp_path)
+        elif ext == ".json":
+            loader = JSONListLoader(temp_path)
         else:  # Default to text loader
             loader = TextLoader(temp_path)
         
         # Load and split the document
         documents = loader.load()
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap
-        )
-        chunks = text_splitter.split_documents(documents)
+        
+        if ext == ".json":
+            # For JSON, each item is treated as a single chunk regardless of size
+            chunks = documents
+        else:
+            text_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap
+            )
+            chunks = text_splitter.split_documents(documents)
+        
+        # Guard against very small chunks (e.g. fragments or noise under 10 chars)
+        chunks = [c for c in chunks if len(c.page_content.strip()) >= 10]
         
         # Convert to preview format
         preview_chunks = [
@@ -290,6 +320,8 @@ async def process_document_background(
                 loader = Docx2txtLoader(local_temp_path)
             elif ext == ".md":
                 loader = UnstructuredMarkdownLoader(local_temp_path)
+            elif ext == ".json":
+                loader = JSONListLoader(local_temp_path)
             else:  # 默认使用文本加载器
                 loader = TextLoader(local_temp_path)
             
@@ -298,11 +330,18 @@ async def process_document_background(
             logger.info(f"Task {task_id}: Document loaded successfully")
             
             logger.info(f"Task {task_id}: Splitting document into chunks")
-            text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap
-            )
-            chunks = text_splitter.split_documents(documents)
+            if ext == ".json":
+                # For JSON, we trust the existing structure (each object is one chunk)
+                chunks = documents
+            else:
+                text_splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=chunk_size,
+                    chunk_overlap=chunk_overlap
+                )
+                chunks = text_splitter.split_documents(documents)
+            
+            # Guard against very small noise chunks (less than 10 characters)
+            chunks = [c for c in chunks if len(c.page_content.strip()) >= 10]
             logger.info(f"Task {task_id}: Document split into {len(chunks)} chunks")
             
             # 3. 创建向量存储
@@ -359,8 +398,9 @@ async def process_document_background(
             logger.info(f"Task {task_id}: Storing document chunks")
             for i, chunk in enumerate(chunks):
                 # 为每个 chunk 生成唯一的 ID
+                # Include index i to ensure uniqueness even for documents with duplicate content chunks
                 chunk_id = hashlib.sha256(
-                    f"{kb_id}:{file_name}:{chunk.page_content}".encode()
+                    f"{kb_id}:{file_name}:{i}:{chunk.page_content}".encode()
                 ).hexdigest()
 
                 chunk.metadata["source"] = file_name
@@ -386,10 +426,14 @@ async def process_document_background(
                     logger.info(f"Task {task_id}: Stored {i} chunks")
                     db.commit()  # 每 100 条提交一次，避免事务太大
             
-            # 7. 添加到向量存储
-            logger.info(f"Task {task_id}: Adding chunks to vector store")
-            vector_store.add_documents(chunks)
-            # 移除 persist() 调用，因为新版本不需要
+            # 7. 添加到向量存储 (分批处理以提高稳定性)
+            logger.info(f"Task {task_id}: Adding chunks to vector store in batches")
+            batch_size = 100
+            for i in range(0, len(chunks), batch_size):
+                batch = chunks[i:i + batch_size]
+                logger.info(f"Task {task_id}: Processing batch {i//batch_size + 1}/{(len(chunks)-1)//batch_size + 1}")
+                vector_store.add_documents(batch)
+            
             logger.info(f"Task {task_id}: Chunks added to vector store")
             
             # 8. 更新任务状态
