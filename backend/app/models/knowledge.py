@@ -1,22 +1,20 @@
-from datetime import datetime
-
-import sqlalchemy as sa
 from sqlalchemy import (
-    JSON,
-    TIMESTAMP,
-    BigInteger,
     Column,
-    DateTime,
-    ForeignKey,
     Integer,
     String,
+    ForeignKey,
     Text,
+    DateTime,
+    JSON,
+    BigInteger,
+    TIMESTAMP,
     text,
 )
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import relationship
-
 from app.models.base import Base, TimestampMixin
+from datetime import datetime
+import sqlalchemy as sa
 
 
 class KnowledgeBase(Base, TimestampMixin):

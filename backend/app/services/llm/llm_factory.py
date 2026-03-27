@@ -1,9 +1,7 @@
 from typing import Optional
-
 from langchain_core.language_models import BaseChatModel
-from langchain_deepseek import ChatDeepSeek
 from langchain_openai import ChatOpenAI
-
+from langchain_deepseek import ChatDeepSeek
 from app.core.config import settings
 
 

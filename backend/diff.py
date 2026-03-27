@@ -7,8 +7,8 @@
 # 空间复杂度: O(n)，主要用于存储哈希表
 
 from collections import defaultdict
+from typing import TypedDict, List, Dict, Set
 from dataclasses import dataclass
-from typing import Dict, List, TypedDict
 
 
 @dataclass

@@ -1,5 +1,6 @@
-from sqlalchemy import VARCHAR, Boolean, Column, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, VARCHAR
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 
 from app.models.base import Base, TimestampMixin
 

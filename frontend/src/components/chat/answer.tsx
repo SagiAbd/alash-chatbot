@@ -196,7 +196,7 @@ export const Answer: FC<{
           a: CitationLink,
         }}
       >
-        {processedMarkdown}
+        {markdown}
       </Markdown>
     </div>
   );

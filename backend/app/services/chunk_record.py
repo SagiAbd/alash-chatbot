@@ -1,10 +1,9 @@
-from typing import Dict, List, Optional, Set
-
-from sqlalchemy import create_engine
+from typing import Optional, List, Dict, Set
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
-
 from app.core.config import settings
 from app.models.knowledge import DocumentChunk
+import json
 
 
 class ChunkRecord:

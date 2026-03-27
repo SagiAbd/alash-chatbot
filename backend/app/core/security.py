@@ -1,13 +1,11 @@
 from datetime import datetime, timedelta
 from typing import Optional
-
-import bcrypt
-from fastapi import Depends, HTTPException, Security, status
-from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
 from jose import JWTError, jwt
-from sqlalchemy.orm import Session
-
+import bcrypt
 from app.core.config import settings
+from fastapi import Depends, HTTPException, status, Security
+from fastapi.security import OAuth2PasswordBearer, APIKeyHeader
+from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.user import User
 from app.services.api_key import APIKeyService

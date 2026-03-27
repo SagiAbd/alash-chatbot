@@ -1,7 +1,6 @@
-from sqlalchemy import Column, ForeignKey, Integer, String, Table
+from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, Table
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import relationship
-
 from app.models.base import Base, TimestampMixin
 
 # Association table for many-to-many relationship between Chat and KnowledgeBase

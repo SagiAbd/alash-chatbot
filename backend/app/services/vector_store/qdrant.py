@@ -1,9 +1,7 @@
-from typing import Any, List
-
-from langchain_community.vectorstores import Qdrant
+from typing import List, Any
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
-
+from langchain_community.vectorstores import Qdrant
 from app.core.config import settings
 
 from .base import BaseVectorStore

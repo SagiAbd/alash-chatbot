@@ -1,6 +1,5 @@
 from fastapi import APIRouter
-
-from app.api.api_v1 import api_keys, auth, chat, knowledge_base
+from app.api.api_v1 import auth, knowledge_base, chat, api_keys
 
 api_router = APIRouter()
 

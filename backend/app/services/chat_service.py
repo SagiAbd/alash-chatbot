@@ -1,51 +1,32 @@
-"""Chat service — delegates to the LangGraph agent."""
+"""Chat service — delegates to the LangGraph agent with deterministic tools."""
 
 import json
 import logging
 import time
-from typing import AsyncGenerator, Dict, List
+from typing import AsyncGenerator, List
 
 from langchain_core.messages import AIMessage, HumanMessage
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.chat import Message
-from app.models.knowledge import Document, KnowledgeBase
+from app.models.knowledge import Document
 from app.services.agent.graph import run_turn
 from app.services.agent.llm_cache import _llm_cache
 from app.services.agent.state import TurnLog
 from app.services.agent.tools import create_tools
-from app.services.embedding.embedding_factory import EmbeddingsFactory
-from app.services.vector_store import VectorStoreFactory
-from app.services.vector_store.base import BaseVectorStore
 
 logger = logging.getLogger(__name__)
 
 _SYSTEM_ERROR_KZ = "Кешіріңіз, жүйелік қате орын алды. Кейінірек қайталап көріңіз."
 
-# ─── Module-level singleton caches ──────────────────────────────────
-# Embeddings and vector stores are stateless at inference time —
-# safe to share and reuse across requests.
-
-_embeddings = None
-_vector_store_cache: Dict[str, BaseVectorStore] = {}
+_EMPTY_USAGE = {"promptTokens": 0, "completionTokens": 0}
 
 
-def _get_embeddings():
-    global _embeddings
-    if _embeddings is None:
-        _embeddings = EmbeddingsFactory.create()
-    return _embeddings
-
-
-def _get_vector_store(collection_name: str) -> BaseVectorStore:
-    if collection_name not in _vector_store_cache:
-        _vector_store_cache[collection_name] = VectorStoreFactory.create(
-            store_type=settings.VECTOR_STORE_TYPE,
-            collection_name=collection_name,
-            embedding_function=_get_embeddings(),
-        )
-    return _vector_store_cache[collection_name]
+def _finish_event(reason: str = "stop") -> str:
+    """Build a Vercel AI finish event line."""
+    payload = {"finishReason": reason, "usage": _EMPTY_USAGE}
+    return f"d:{json.dumps(payload)}\n"
 
 
 # ─── Main entry point ────────────────────────────────────────────────
@@ -61,10 +42,10 @@ async def generate_response(
     """Generate a streaming response using the LangGraph agent.
 
     Flow per turn:
-      1. Resolve vector stores from cache
-      2. LLM decides to call search_kb or answer directly
-      3. Tool executes vector search; LLM receives results and responds
-      4. Tokens streamed back to client
+      1. Build deterministic tools from DB documents
+      2. LLM decides which tools to call (browse authors/books/works)
+      3. Tools execute DB queries; LLM receives results and responds
+      4. Tokens and step events streamed back to client
     """
     try:
         pipeline_start = time.perf_counter()
@@ -76,43 +57,31 @@ async def generate_response(
         db.add(bot_message)
         db.commit()
 
-        # Resolve knowledge bases
-        knowledge_bases = (
-            db.query(KnowledgeBase)
-            .filter(KnowledgeBase.id.in_(knowledge_base_ids))
-            .all()
+        # Check that KBs have documents
+        doc_count = (
+            db.query(Document)
+            .filter(Document.knowledge_base_id.in_(knowledge_base_ids))
+            .count()
         )
-
-        # Build vector stores (from cache)
-        vector_stores = []
-        for kb in knowledge_bases:
-            docs = db.query(Document).filter(Document.knowledge_base_id == kb.id).all()
-            if docs:
-                vector_stores.append(_get_vector_store(f"kb_{kb.id}"))
-
-        if not vector_stores:
+        if not doc_count:
             error_msg = "Білім қоры таңдалмаған немесе бос."
             yield f"0:{json.dumps(error_msg)}\n"
-            yield f"d:{json.dumps({'finishReason': 'stop', 'usage': {'promptTokens': 0, 'completionTokens': 0}})}\n"
+            yield _finish_event("stop")
             bot_message.content = error_msg
             db.commit()
             return
 
-        # Build per-KB retrievers with k=6
-        retrievers = [vs.as_retriever(search_kwargs={"k": 6}) for vs in vector_stores]
+        # Build deterministic tools from DB
+        tools = create_tools(db=db, knowledge_base_ids=knowledge_base_ids)
 
-        # Build tools
-        tools = create_tools(retrievers=retrievers)
-
-        # Get LLM with tools bound (from cache).
+        # Get LLM with tools bound (from cache)
         _llm_key = (settings.CHAT_PROVIDER, 0.0, True)
         llm = _llm_cache[_llm_key]
         llm_with_tools = llm.bind_tools(tools)
 
         # Build chat history from DB messages
-        chat_history = []
+        chat_history: List = []
         for i, msg in enumerate(messages["messages"]):
-            # Skip current query if already last message
             if (
                 i == len(messages["messages"]) - 1
                 and msg["role"] == "user"
@@ -123,6 +92,7 @@ async def generate_response(
                 chat_history.append(HumanMessage(content=msg["content"]))
             elif msg["role"] == "assistant":
                 content = msg["content"]
+                # Backward compat: strip old __LLM_RESPONSE__ format
                 if "__LLM_RESPONSE__" in content:
                     content = content.split("__LLM_RESPONSE__")[-1]
                 chat_history.append(AIMessage(content=content))
@@ -140,7 +110,11 @@ async def generate_response(
         ):
             if isinstance(item, TurnLog):
                 turn_log = item
+            elif isinstance(item, dict) and item.get("type") == "step":
+                # Stream step events as Vercel AI data annotations
+                yield f"8:[{json.dumps(item, ensure_ascii=False)}]\n"
             else:
+                # Text token
                 yield f"0:{json.dumps(item)}\n"
                 full_response += item
 
@@ -153,7 +127,7 @@ async def generate_response(
                 turn_log.pipeline_total_ms,
             )
 
-        yield f"d:{json.dumps({'finishReason': 'stop', 'usage': {'promptTokens': 0, 'completionTokens': 0}})}\n"
+        yield _finish_event("stop")
 
         bot_message.content = full_response
         db.commit()
@@ -161,7 +135,7 @@ async def generate_response(
     except Exception as e:
         logger.exception("Error generating response for chat_id=%s: %s", chat_id, e)
         yield f"0:{json.dumps(_SYSTEM_ERROR_KZ)}\n"
-        yield f"d:{json.dumps({'finishReason': 'error', 'usage': {'promptTokens': 0, 'completionTokens': 0}})}\n"
+        yield _finish_event("error")
         if "bot_message" in locals():
             bot_message.content = _SYSTEM_ERROR_KZ
             db.commit()

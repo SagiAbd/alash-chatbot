@@ -1,10 +1,8 @@
-from typing import Any, List
-
-import chromadb
-from langchain_chroma import Chroma
+from typing import List, Any
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
-
+from langchain_chroma import Chroma
+import chromadb
 from app.core.config import settings
 
 from .base import BaseVectorStore

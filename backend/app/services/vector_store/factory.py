@@ -1,5 +1,4 @@
-from typing import Any, Dict, Type
-
+from typing import Dict, Type, Any
 from langchain_core.embeddings import Embeddings
 
 from .base import BaseVectorStore

@@ -1,5 +1,26 @@
 # Changelog
 
+## [2026-03-28] (2)
+
+### Refactored
+- Cleaned and standardized backend codebase formatting using Ruff (fixed indentation, removed redundant lines)
+
+### Changed
+- Chat agent rewritten from vector-store RAG to agentic approach with deterministic document retrieval
+- New agent tools: `get_authors_and_books`, `get_book_details`, `get_author_works`, `get_work_content` (with pagination)
+- Agent streams step events (thinking, tool calls, results) to frontend in real-time
+- Parallel tool execution via `asyncio.gather` + LLM instructed to use parallel calls
+- Graph recursion limit increased from 10 to 30
+- System prompt instructs compact answers by default (verbose only when user asks)
+- Chat UI redesigned with separate visual blocks: collapsible ThinkingBubble, animated ToolCallCard, Answer
+- User message font size matches LLM output (both use `prose-sm`)
+- Added scroll padding at bottom so last line is never cut off
+- framer-motion for all message/step animations
+- Answer component simplified — removed citation popovers, LLM now cites inline
+- Removed all vector store imports from chat service
+
+---
+
 ## [2026-03-28]
 
 ### Added

@@ -1,7 +1,6 @@
-from langchain_community.embeddings import DashScopeEmbeddings
-from langchain_openai import OpenAIEmbeddings
-
 from app.core.config import settings
+from langchain_openai import OpenAIEmbeddings
+from langchain_community.embeddings import DashScopeEmbeddings
 
 
 class EmbeddingsFactory:
