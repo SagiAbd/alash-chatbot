@@ -459,6 +459,47 @@ async def cleanup_temp_files(
     
     return {"message": f"Cleaned up {len(expired_uploads)} expired uploads"}
 
+@router.get("/{kb_id}/tasks")
+async def get_kb_tasks(
+    kb_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> Any:
+    """
+    Get all non-completed processing tasks for a knowledge base.
+
+    Returns pending/processing tasks so the UI can show in-progress uploads
+    after a page reload without relying on in-memory state.
+    """
+    kb = db.query(KnowledgeBase).filter(
+        KnowledgeBase.id == kb_id,
+        KnowledgeBase.user_id == current_user.id
+    ).first()
+    if not kb:
+        raise HTTPException(status_code=404, detail="Knowledge base not found")
+
+    tasks = (
+        db.query(ProcessingTask)
+        .options(selectinload(ProcessingTask.document_upload))
+        .filter(
+            ProcessingTask.knowledge_base_id == kb_id,
+            ProcessingTask.status.in_(["pending", "processing"])
+        )
+        .all()
+    )
+
+    return [
+        {
+            "task_id": t.id,
+            "file_name": t.document_upload.file_name if t.document_upload else None,
+            "file_size": t.document_upload.file_size if t.document_upload else None,
+            "status": t.status,
+            "error_message": t.error_message,
+        }
+        for t in tasks
+    ]
+
+
 @router.get("/{kb_id}/documents/tasks")
 async def get_processing_tasks(
     kb_id: int,
@@ -528,6 +569,100 @@ async def get_document(
         raise HTTPException(status_code=404, detail="Document not found")
     
     return document
+
+@router.delete("/{kb_id}/documents/{doc_id}")
+async def delete_document(
+    *,
+    db: Session = Depends(get_db),
+    kb_id: int,
+    doc_id: int,
+    current_user: User = Depends(get_current_user)
+) -> Any:
+    """
+    Delete a single document and all associated resources.
+
+    Removes the file from MinIO, its chunks from the vector store and database,
+    and all processing task records before deleting the document itself.
+    """
+    document = (
+        db.query(Document)
+        .join(KnowledgeBase)
+        .filter(
+            Document.id == doc_id,
+            Document.knowledge_base_id == kb_id,
+            KnowledgeBase.user_id == current_user.id
+        )
+        .first()
+    )
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    cleanup_errors = []
+
+    # 1. Delete from MinIO
+    try:
+        minio_client = get_minio_client()
+        minio_client.remove_object(settings.MINIO_BUCKET_NAME, document.file_path)
+    except MinioException as e:
+        cleanup_errors.append(f"MinIO cleanup failed: {str(e)}")
+        logger.error(f"MinIO cleanup error for document {doc_id}: {str(e)}")
+
+    # 2. Delete from vector store
+    try:
+        embeddings = EmbeddingsFactory.create()
+        vector_store = VectorStoreFactory.create(
+            store_type=settings.VECTOR_STORE_TYPE,
+            collection_name=f"kb_{kb_id}",
+            embedding_function=embeddings,
+        )
+        chunk_ids = [c.id for c in db.query(DocumentChunk).filter(DocumentChunk.document_id == doc_id).all()]
+        if chunk_ids:
+            vector_store._store.delete(ids=chunk_ids)
+    except Exception as e:
+        cleanup_errors.append(f"Vector store cleanup failed: {str(e)}")
+        logger.error(f"Vector store cleanup error for document {doc_id}: {str(e)}")
+
+    # 3. Delete DB records (chunks, tasks, document)
+    db.query(DocumentChunk).filter(DocumentChunk.document_id == doc_id).delete()
+    db.query(ProcessingTask).filter(ProcessingTask.document_id == doc_id).delete()
+    db.delete(document)
+    db.commit()
+
+    if cleanup_errors:
+        return {"message": "Document deleted with cleanup warnings", "warnings": cleanup_errors}
+    return {"message": "Document deleted successfully"}
+
+
+@router.get("/{kb_id}/documents/{doc_id}/chunks")
+async def get_document_chunks(
+    *,
+    db: Session = Depends(get_db),
+    kb_id: int,
+    doc_id: int,
+    current_user: User = Depends(get_current_user)
+) -> Any:
+    """
+    Get stored chunks for a document.
+
+    Returns chunk content from the DocumentChunk table. The page_content
+    is stored inside the chunk_metadata JSON field.
+    """
+    document = (
+        db.query(Document)
+        .join(KnowledgeBase)
+        .filter(
+            Document.id == doc_id,
+            Document.knowledge_base_id == kb_id,
+            KnowledgeBase.user_id == current_user.id
+        )
+        .first()
+    )
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    chunks = db.query(DocumentChunk).filter(DocumentChunk.document_id == doc_id).all()
+    return [{"id": c.id, "chunk_metadata": c.chunk_metadata} for c in chunks]
+
 
 @router.post("/test-retrieval")
 async def test_retrieval(
