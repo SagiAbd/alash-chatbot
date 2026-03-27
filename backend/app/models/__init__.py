@@ -1,7 +1,7 @@
-from .user import User
-from .knowledge import KnowledgeBase, Document, DocumentChunk
-from .chat import Chat, Message
 from .api_key import APIKey
+from .chat import Chat, Message
+from .knowledge import Document, DocumentChunk, KnowledgeBase
+from .user import User
 
 __all__ = [
     "User",

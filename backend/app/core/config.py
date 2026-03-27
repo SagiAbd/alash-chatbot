@@ -1,5 +1,5 @@
 import os
-from typing import List, Optional
+from typing import Optional
 
 from pydantic_settings import BaseSettings
 
@@ -29,7 +29,9 @@ class Settings(BaseSettings):
     # JWT settings
     SECRET_KEY: str = os.getenv("SECRET_KEY", "your-secret-key-here")
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "10080"))
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(
+        os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "10080")
+    )
 
     # Chat Provider settings
     CHAT_PROVIDER: str = os.getenv("CHAT_PROVIDER", "openai")
@@ -47,7 +49,9 @@ class Settings(BaseSettings):
     OPENAI_API_BASE: str = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "your-openai-api-key-here")
     OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4")
-    OPENAI_EMBEDDINGS_MODEL: str = os.getenv("OPENAI_EMBEDDINGS_MODEL", "text-embedding-ada-002")
+    OPENAI_EMBEDDINGS_MODEL: str = os.getenv(
+        "OPENAI_EMBEDDINGS_MODEL", "text-embedding-ada-002"
+    )
 
     # DashScope settings
     DASH_SCOPE_API_KEY: str = os.getenv("DASH_SCOPE_API_KEY", "")
@@ -78,9 +82,13 @@ class Settings(BaseSettings):
 
     # OpenRouter settings
     OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
-    OPENROUTER_API_BASE: str = os.getenv("OPENROUTER_API_BASE", "https://openrouter.ai/api/v1")
+    OPENROUTER_API_BASE: str = os.getenv(
+        "OPENROUTER_API_BASE", "https://openrouter.ai/api/v1"
+    )
     OPENROUTER_MODEL: str = os.getenv("OPENROUTER_MODEL", "qwen/qwen3.5-35b-a3b")
-    OPENROUTER_EMBEDDINGS_MODEL: str = os.getenv("OPENROUTER_EMBEDDINGS_MODEL", "qwen/qwen3-embedding-8b")
+    OPENROUTER_EMBEDDINGS_MODEL: str = os.getenv(
+        "OPENROUTER_EMBEDDINGS_MODEL", "qwen/qwen3-embedding-8b"
+    )
     OPENROUTER_SITE_URL: str = os.getenv("OPENROUTER_SITE_URL", "")
     OPENROUTER_SITE_NAME: str = os.getenv("OPENROUTER_SITE_NAME", "")
 

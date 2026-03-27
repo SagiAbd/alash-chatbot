@@ -11,11 +11,11 @@ import logging
 from typing import AsyncGenerator, List
 
 from langchain_core.messages import HumanMessage
-from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import END, StateGraph
 
-from app.services.agent.state import AgentState, TurnLog
 from app.services.agent.agent import call_model_node, custom_tool_node, tools_condition
+from app.services.agent.state import AgentState, TurnLog
 
 logger = logging.getLogger(__name__)
 
@@ -49,11 +49,14 @@ def init_graph() -> None:
 
 def get_graph_app():
     if _app is None:
-        raise RuntimeError("LangGraph app not initialized — call init_graph() at startup.")
+        raise RuntimeError(
+            "LangGraph app not initialized — call init_graph() at startup."
+        )
     return _app
 
 
 # ─── Entry Point ─────────────────────────────────────────────────────
+
 
 def _get_chunk_content(chunk) -> str:
     """Extract text from a streaming AIMessageChunk."""

@@ -3,21 +3,21 @@
 import json
 import logging
 import time
-from typing import List, AsyncGenerator, Dict
+from typing import AsyncGenerator, Dict, List
 
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.chat import Message
-from app.models.knowledge import KnowledgeBase, Document
-from app.services.vector_store import VectorStoreFactory
-from app.services.vector_store.base import BaseVectorStore
-from app.services.embedding.embedding_factory import EmbeddingsFactory
-from app.services.agent.graph import run_turn, get_graph_app
+from app.models.knowledge import Document, KnowledgeBase
+from app.services.agent.graph import run_turn
+from app.services.agent.llm_cache import _llm_cache
 from app.services.agent.state import TurnLog
 from app.services.agent.tools import create_tools
-from app.services.agent.llm_cache import _llm_cache
+from app.services.embedding.embedding_factory import EmbeddingsFactory
+from app.services.vector_store import VectorStoreFactory
+from app.services.vector_store.base import BaseVectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +49,7 @@ def _get_vector_store(collection_name: str) -> BaseVectorStore:
 
 
 # ─── Main entry point ────────────────────────────────────────────────
+
 
 async def generate_response(
     query: str,
@@ -91,8 +92,8 @@ async def generate_response(
 
         if not vector_stores:
             error_msg = "Білім қоры таңдалмаған немесе бос."
-            yield f'0:{json.dumps(error_msg)}\n'
-            yield f'd:{json.dumps({"finishReason": "stop", "usage": {"promptTokens": 0, "completionTokens": 0}})}\n'
+            yield f"0:{json.dumps(error_msg)}\n"
+            yield f"d:{json.dumps({'finishReason': 'stop', 'usage': {'promptTokens': 0, 'completionTokens': 0}})}\n"
             bot_message.content = error_msg
             db.commit()
             return
@@ -112,9 +113,11 @@ async def generate_response(
         chat_history = []
         for i, msg in enumerate(messages["messages"]):
             # Skip current query if already last message
-            if (i == len(messages["messages"]) - 1
-                    and msg["role"] == "user"
-                    and msg["content"] == query):
+            if (
+                i == len(messages["messages"]) - 1
+                and msg["role"] == "user"
+                and msg["content"] == query
+            ):
                 continue
             if msg["role"] == "user":
                 chat_history.append(HumanMessage(content=msg["content"]))
@@ -138,7 +141,7 @@ async def generate_response(
             if isinstance(item, TurnLog):
                 turn_log = item
             else:
-                yield f'0:{json.dumps(item)}\n'
+                yield f"0:{json.dumps(item)}\n"
                 full_response += item
 
         if turn_log:
@@ -150,15 +153,15 @@ async def generate_response(
                 turn_log.pipeline_total_ms,
             )
 
-        yield f'd:{json.dumps({"finishReason": "stop", "usage": {"promptTokens": 0, "completionTokens": 0}})}\n'
+        yield f"d:{json.dumps({'finishReason': 'stop', 'usage': {'promptTokens': 0, 'completionTokens': 0}})}\n"
 
         bot_message.content = full_response
         db.commit()
 
     except Exception as e:
         logger.exception("Error generating response for chat_id=%s: %s", chat_id, e)
-        yield f'0:{json.dumps(_SYSTEM_ERROR_KZ)}\n'
-        yield f'd:{json.dumps({"finishReason": "error", "usage": {"promptTokens": 0, "completionTokens": 0}})}\n'
+        yield f"0:{json.dumps(_SYSTEM_ERROR_KZ)}\n"
+        yield f"d:{json.dumps({'finishReason': 'error', 'usage': {'promptTokens': 0, 'completionTokens': 0}})}\n"
         if "bot_message" in locals():
             bot_message.content = _SYSTEM_ERROR_KZ
             db.commit()

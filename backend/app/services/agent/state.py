@@ -1,13 +1,15 @@
 """Agent state for the LangGraph-based Alash chatbot."""
 
-from typing import Optional, List, Dict, Any, TypedDict, Annotated
 from dataclasses import dataclass, field
+from typing import Annotated, Any, Dict, List, TypedDict
+
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 
 
 class AgentState(TypedDict):
     """LangGraph state for the Alash RAG agent."""
+
     messages: Annotated[List[BaseMessage], add_messages]
     question: str
     turn_log: "TurnLog"
@@ -16,6 +18,7 @@ class AgentState(TypedDict):
 @dataclass
 class TurnLog:
     """Observability log for a single turn."""
+
     tool_calls: List[str] = field(default_factory=list)
     iterations: int = 0
     timing_ms: Dict[str, float] = field(default_factory=dict)
@@ -31,7 +34,7 @@ class TurnLog:
         lines.append(f"**⏱ Agent steps: {agent_total:.0f}ms**")
         for step, ms in self.timing_ms.items():
             lines.append(f"- {step}: {ms:.0f}ms")
-        lines.append(f"\n**📋 Pipeline**")
+        lines.append("\n**📋 Pipeline**")
         lines.append(f"- Iterations: {self.iterations}")
         if self.tool_calls:
             lines.append(f"\n**🔧 Tools: {', '.join(self.tool_calls)}**")

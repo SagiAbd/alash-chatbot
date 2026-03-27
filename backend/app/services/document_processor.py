@@ -4,6 +4,7 @@ Document processor service.
 Handles uploading JSON OCR files to MinIO and processing them
 through the book indexer to produce work-level vector store entries.
 """
+
 import hashlib
 import logging
 import os
@@ -68,7 +69,9 @@ async def upload_document(file: UploadFile, kb_id: int) -> UploadResult:
     object_path = f"kb_{kb_id}/{file_name}"
 
     _, ext = os.path.splitext(file_name)
-    content_type = "application/json" if ext.lower() == ".json" else "application/octet-stream"
+    content_type = (
+        "application/json" if ext.lower() == ".json" else "application/octet-stream"
+    )
 
     minio_client = get_minio_client()
     try:
@@ -142,7 +145,9 @@ def process_document_background(
                 file_path=local_temp_path,
             )
         except MinioException as exc:
-            raise BookIndexingError(f"Failed to download file from MinIO: {exc}") from exc
+            raise BookIndexingError(
+                f"Failed to download file from MinIO: {exc}"
+            ) from exc
 
         # 2. Load and clean pages from JSON
         logger.info(f"Task {task_id}: Loading pages from JSON")
@@ -157,7 +162,9 @@ def process_document_background(
         try:
             rows = (
                 db.query(Document.analysis)
-                .filter(Document.knowledge_base_id == kb_id, Document.analysis.isnot(None))
+                .filter(
+                    Document.knowledge_base_id == kb_id, Document.analysis.isnot(None)
+                )
                 .all()
             )
             seen: set[str] = set()
@@ -198,7 +205,9 @@ def process_document_background(
         main_author = book_index.metadata.main_author.strip()
         book_title = book_index.metadata.book_title.strip()
         if main_author and book_title:
-            safe = re.sub(r'[^\w\s\-]', '', f"{main_author} - {book_title}", flags=re.UNICODE)
+            safe = re.sub(
+                r"[^\w\s\-]", "", f"{main_author} - {book_title}", flags=re.UNICODE
+            )
             final_file_name = f"{safe.strip()}.json"
         else:
             final_file_name = file_name
@@ -218,7 +227,9 @@ def process_document_background(
                 object_name=temp_path,
             )
         except MinioException as exc:
-            raise BookIndexingError(f"Failed to move file to permanent storage: {exc}") from exc
+            raise BookIndexingError(
+                f"Failed to move file to permanent storage: {exc}"
+            ) from exc
         logger.info(f"Task {task_id}: MinIO move in {time.monotonic() - t0:.1f}s")
 
         # 8. Create Document record

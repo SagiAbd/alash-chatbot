@@ -5,6 +5,7 @@ Loads JSON OCR page arrays, extracts key pages for LLM analysis,
 uses the LLM to identify every work listed in the table of contents,
 then extracts each work's text as a standalone document for the vector store.
 """
+
 import json
 import logging
 import re
@@ -270,7 +271,9 @@ def index_book(
     try:
         return BookIndex.model_validate(data)
     except Exception as exc:
-        raise BookIndexingError(f"LLM JSON did not match expected schema: {exc}") from exc
+        raise BookIndexingError(
+            f"LLM JSON did not match expected schema: {exc}"
+        ) from exc
 
 
 # ─── Work extraction ──────────────────────────────────────────────────────────

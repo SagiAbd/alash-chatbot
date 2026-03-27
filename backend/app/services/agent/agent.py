@@ -6,15 +6,20 @@ Nodes:
   2. custom_tool_node: Executes tool calls from the LLM.
 """
 
-import time
 import logging
-from typing import Dict, Any, Literal, List
+import time
+from typing import Any, Dict, List, Literal
 
-from langchain_core.messages import SystemMessage, AIMessage, ToolMessage, HumanMessage, BaseMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langchain_core.runnables import RunnableConfig
 
 from app.services.agent.state import AgentState, TurnLog
-from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +35,10 @@ _SYSTEM_PROMPT = """Сіз Алаш қозғалысының, оның мүше�
 6. Жауабыңызды сұрақ тілінде жазыңыз (қазақша немесе орысша).
 """
 
-def _trim_tool_history(messages: List[BaseMessage], keep_turns: int = 1) -> List[BaseMessage]:
+
+def _trim_tool_history(
+    messages: List[BaseMessage], keep_turns: int = 1
+) -> List[BaseMessage]:
     """Keep ToolMessages only for the last N completed turns to save context."""
     if keep_turns < 0 or not messages:
         return messages
@@ -112,11 +120,13 @@ async def custom_tool_node(state: AgentState, config: RunnableConfig) -> Dict[st
             turn_log.timing_ms[f"Tool: {name}"] = elapsed
             turn_log.tool_results[name] = str(output)[:500]
 
-            results.append(ToolMessage(
-                content=str(output),
-                tool_call_id=tool_call_id,
-                name=name,
-            ))
+            results.append(
+                ToolMessage(
+                    content=str(output),
+                    tool_call_id=tool_call_id,
+                    name=name,
+                )
+            )
 
     return {
         "messages": results,

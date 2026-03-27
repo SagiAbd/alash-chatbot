@@ -1,15 +1,17 @@
 import logging
 
-from langchain.globals import set_verbose, set_debug
+from langchain.globals import set_debug, set_verbose
+
 set_verbose(True)
 set_debug(True)
+
+from fastapi import FastAPI
 
 from app.api.api_v1.api import api_router
 from app.api.openapi.api import router as openapi_router
 from app.core.config import settings
 from app.core.minio import init_minio
 from app.startup.migarate import DatabaseMigrator
-from fastapi import FastAPI
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,6 +38,7 @@ async def startup_event():
     migrator.run_migrations()
     # Initialize LangGraph agent
     from app.services.agent.graph import init_graph
+
     init_graph()
 
 

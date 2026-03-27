@@ -30,7 +30,8 @@ class DatabaseMigrator:
             SQLAlchemy connection object
         """
         engine = create_engine(
-            self.db_url, connect_args={"connect_timeout": 3}  # 设置连接超时为3秒
+            self.db_url,
+            connect_args={"connect_timeout": 3},  # 设置连接超时为3秒
         )
         try:
             with engine.connect() as connection:
@@ -55,7 +56,9 @@ class DatabaseMigrator:
             heads = context.get_current_heads()
 
         if not heads:
-            logger.warning("No migration heads found. Database might not be initialized.")
+            logger.warning(
+                "No migration heads found. Database might not be initialized."
+            )
             return True, current_rev or "None", "head"
 
         head_rev = heads[0]
@@ -68,7 +71,9 @@ class DatabaseMigrator:
         Returns:
             Alembic config object
         """
-        project_root = Path(__file__).resolve().parents[2]  # Go up 3 levels from migrate.py
+        project_root = (
+            Path(__file__).resolve().parents[2]
+        )  # Go up 3 levels from migrate.py
         alembic_cfg = Config(project_root / "alembic.ini")
         alembic_cfg.set_main_option("sqlalchemy.url", self.db_url)
         return alembic_cfg
@@ -85,11 +90,15 @@ class DatabaseMigrator:
             needs_migration, current_rev, head_rev = self.check_migration_needed()
 
             if needs_migration:
-                logger.info(f"Current revision: {current_rev}, upgrading to: {head_rev}")
+                logger.info(
+                    f"Current revision: {current_rev}, upgrading to: {head_rev}"
+                )
                 self.alembic_cfg.set_main_option("sqlalchemy.url", self.db_url)
 
                 # 执行 alembic 升级
-                alembic_main(argv=["--raiseerr", "upgrade", "head"], config=self.alembic_cfg)
+                alembic_main(
+                    argv=["--raiseerr", "upgrade", "head"], config=self.alembic_cfg
+                )
 
                 logger.info("Database migrations completed successfully")
             else:

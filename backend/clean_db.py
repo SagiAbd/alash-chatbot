@@ -1,5 +1,7 @@
 from sqlalchemy import create_engine, text
+
 from app.core.config import settings
+
 
 def clean_database():
     engine = create_engine(settings.get_database_url)
@@ -18,6 +20,7 @@ def clean_database():
         conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
         conn.commit()
 
+
 if __name__ == "__main__":
     clean_database()
-    print("Database cleaned successfully") 
+    print("Database cleaned successfully")

@@ -4,8 +4,8 @@ Single tool: search_kb — LLM writes an expanded query, simple vector search
 returns relevant document chunks from all selected knowledge bases.
 """
 
-from langchain_core.tools import tool
 from langchain.retrievers.merger_retriever import MergerRetriever
+from langchain_core.tools import tool
 
 
 def create_tools(retrievers: list):

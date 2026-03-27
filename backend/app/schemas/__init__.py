@@ -1,4 +1,9 @@
-from .api_key import APIKey, APIKeyCreate, APIKeyUpdate, APIKeyInDB
-from .user import UserBase, UserCreate, UserUpdate, UserResponse
+from .api_key import APIKey, APIKeyCreate, APIKeyInDB, APIKeyUpdate
+from .knowledge import (
+    KnowledgeBaseBase,
+    KnowledgeBaseCreate,
+    KnowledgeBaseResponse,
+    KnowledgeBaseUpdate,
+)
 from .token import Token, TokenPayload
-from .knowledge import KnowledgeBaseBase, KnowledgeBaseCreate, KnowledgeBaseUpdate, KnowledgeBaseResponse
+from .user import UserBase, UserCreate, UserResponse, UserUpdate

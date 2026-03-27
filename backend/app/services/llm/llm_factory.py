@@ -1,8 +1,11 @@
 from typing import Optional
+
 from langchain_core.language_models import BaseChatModel
-from langchain_openai import ChatOpenAI
 from langchain_deepseek import ChatDeepSeek
+from langchain_openai import ChatOpenAI
+
 from app.core.config import settings
+
 
 class LLMFactory:
     @staticmethod
@@ -23,7 +26,7 @@ class LLMFactory:
                 streaming=streaming,
                 model=settings.OPENAI_MODEL,
                 openai_api_key=settings.OPENAI_API_KEY,
-                openai_api_base=settings.OPENAI_API_BASE
+                openai_api_base=settings.OPENAI_API_BASE,
             )
         elif provider.lower() == "deepseek":
             return ChatDeepSeek(
@@ -31,7 +34,7 @@ class LLMFactory:
                 streaming=streaming,
                 model=settings.DEEPSEEK_MODEL,
                 api_key=settings.DEEPSEEK_API_KEY,
-                api_base=settings.DEEPSEEK_API_BASE
+                api_base=settings.DEEPSEEK_API_BASE,
             )
         elif provider.lower() == "openrouter":
             headers = {}
@@ -39,14 +42,14 @@ class LLMFactory:
                 headers["HTTP-Referer"] = settings.OPENROUTER_SITE_URL
             if settings.OPENROUTER_SITE_NAME:
                 headers["X-OpenRouter-Title"] = settings.OPENROUTER_SITE_NAME
-            
+
             return ChatOpenAI(
                 temperature=temperature,
                 streaming=streaming,
                 model=settings.OPENROUTER_MODEL,
                 openai_api_key=settings.OPENROUTER_API_KEY,
                 openai_api_base=settings.OPENROUTER_API_BASE,
-                default_headers=headers
+                default_headers=headers,
             )
         # Add more providers here as needed
         # elif provider.lower() == "anthropic":

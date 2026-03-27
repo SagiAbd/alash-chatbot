@@ -1,15 +1,17 @@
+import logging
 from typing import Any, List
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-import logging
 
 from app import models, schemas
+from app.core.security import get_current_user
 from app.db.session import get_db
 from app.services.api_key import APIKeyService
-from app.core.security import get_current_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
 
 @router.get("/", response_model=List[schemas.APIKey])
 def read_api_keys(
@@ -25,6 +27,7 @@ def read_api_keys(
         db=db, user_id=current_user.id, skip=skip, limit=limit
     )
     return api_keys
+
 
 @router.post("/", response_model=schemas.APIKey)
 def create_api_key(
@@ -42,6 +45,7 @@ def create_api_key(
     logger.info(f"API key created: {api_key.key} for user {current_user.id}")
     return api_key
 
+
 @router.put("/{id}", response_model=schemas.APIKey)
 def update_api_key(
     *,
@@ -58,10 +62,13 @@ def update_api_key(
         raise HTTPException(status_code=404, detail="API key not found")
     if api_key.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not enough permissions")
-    
-    api_key = APIKeyService.update_api_key(db=db, api_key=api_key, update_data=api_key_in)
+
+    api_key = APIKeyService.update_api_key(
+        db=db, api_key=api_key, update_data=api_key_in
+    )
     logger.info(f"API key updated: {api_key.key} for user {current_user.id}")
     return api_key
+
 
 @router.delete("/{id}", response_model=schemas.APIKey)
 def delete_api_key(
@@ -78,7 +85,7 @@ def delete_api_key(
         raise HTTPException(status_code=404, detail="API key not found")
     if api_key.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not enough permissions")
-    
+
     APIKeyService.delete_api_key(db=db, api_key=api_key)
     logger.info(f"API key deleted: {api_key.key} for user {current_user.id}")
     return api_key
