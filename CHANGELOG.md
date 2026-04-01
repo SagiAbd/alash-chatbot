@@ -1,5 +1,11 @@
 # Changelog
 
+## [2026-04-01]
+
+### Improved
+- Structured backend chat logs into an ordered turn timeline with sequence numbers, LangGraph/LLM/tool stages, per-tool timing, and explicit parallel batch markers
+- Reduced noisy LangChain debug logging and switched backend log formatting to a denser, easier-to-scan layout
+
 ## [2026-03-28] (2)
 
 ### Refactored

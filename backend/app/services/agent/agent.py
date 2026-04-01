@@ -106,12 +106,26 @@ async def call_model_node(state: AgentState, config: RunnableConfig) -> Dict[str
     messages = _trim_tool_history(state["messages"])
     full_messages = [SystemMessage(content=_SYSTEM_PROMPT)] + messages
 
+    turn_log.add_event(
+        "llm.call.start",
+        "Calling chat model",
+        iteration=turn_log.iterations + 1,
+        message_count=len(full_messages),
+    )
+
     t0 = time.perf_counter()
     response = await llm_with_tools.ainvoke(full_messages)
     elapsed = (time.perf_counter() - t0) * 1000
 
     turn_log.iterations += 1
     turn_log.timing_ms[f"LLM call {turn_log.iterations}"] = elapsed
+    turn_log.add_event(
+        "llm.call.finish",
+        "Chat model responded",
+        iteration=turn_log.iterations,
+        duration_ms=round(elapsed, 2),
+        tool_call_count=len(getattr(response, "tool_calls", []) or []),
+    )
 
     return {
         "messages": [response],
@@ -129,23 +143,60 @@ async def custom_tool_node(state: AgentState, config: RunnableConfig) -> Dict[st
     if not hasattr(last_message, "tool_calls") or not last_message.tool_calls:
         return {"messages": [], "turn_log": turn_log}
 
+    batch_id = turn_log.register_tool_batch(last_message.tool_calls)
+    parallel = len(last_message.tool_calls) > 1
+    turn_log.add_event(
+        "tools.batch.start",
+        "Starting tool batch",
+        batch_id=batch_id,
+        tool_count=len(last_message.tool_calls),
+        parallel=parallel,
+        tools=[tc["name"] for tc in last_message.tool_calls],
+    )
+
     async def _run_one(tc: dict) -> ToolMessage:
         name = tc["name"]
         args = tc["args"]
         turn_log.tool_calls.append(name)
+        turn_log.mark_tool_started(tc["id"])
+        turn_log.add_event(
+            "tool.start",
+            "Executing tool",
+            batch_id=batch_id,
+            tool=name,
+            parallel=parallel,
+            args=args,
+        )
 
         t0 = time.perf_counter()
+        status = "success"
         if name in tool_map:
             try:
                 output = await tool_map[name].ainvoke(args)
             except Exception as e:
                 output = f"Қате: {e}"
+                status = "error"
         else:
             output = f"Белгісіз құрал: {name}"
+            status = "missing"
 
         elapsed = (time.perf_counter() - t0) * 1000
         turn_log.timing_ms[f"Tool: {name}"] = elapsed
         turn_log.tool_results[name] = str(output)[:500]
+        turn_log.mark_tool_finished(
+            tc["id"],
+            duration_ms=elapsed,
+            status=status,
+            result_preview=str(output)[:200],
+        )
+        turn_log.add_event(
+            "tool.finish",
+            "Tool finished",
+            batch_id=batch_id,
+            tool=name,
+            status=status,
+            duration_ms=round(elapsed, 2),
+        )
 
         return ToolMessage(
             content=str(output),
@@ -154,6 +205,13 @@ async def custom_tool_node(state: AgentState, config: RunnableConfig) -> Dict[st
         )
 
     results = await asyncio.gather(*[_run_one(tc) for tc in last_message.tool_calls])
+    turn_log.add_event(
+        "tools.batch.finish",
+        "Tool batch completed",
+        batch_id=batch_id,
+        tool_count=len(results),
+        parallel=parallel,
+    )
 
     return {
         "messages": list(results),

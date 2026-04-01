@@ -1,20 +1,21 @@
 import logging
 
-from langchain.globals import set_verbose, set_debug
-
-set_verbose(True)
-set_debug(True)
+from fastapi import FastAPI
+from langchain.globals import set_debug, set_verbose
 
 from app.api.api_v1.api import api_router
 from app.api.openapi.api import router as openapi_router
 from app.core.config import settings
 from app.core.minio import init_minio
 from app.startup.migarate import DatabaseMigrator
-from fastapi import FastAPI
+
+set_verbose(False)
+set_debug(False)
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    format="%(asctime)s.%(msecs)03d | %(levelname)-8s | %(name)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 
 app = FastAPI(

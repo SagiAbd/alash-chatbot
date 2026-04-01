@@ -15,7 +15,11 @@ from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
-from app.services.agent.agent import call_model_node, custom_tool_node, tools_condition
+from app.services.agent.agent import (
+    call_model_node,
+    custom_tool_node,
+    tools_condition,
+)
 from app.services.agent.state import AgentState, TurnLog
 
 logger = logging.getLogger(__name__)
@@ -96,6 +100,7 @@ async def run_turn(
     chat_id: int,
     llm_with_tools,
     tools: List,
+    turn_log: TurnLog | None = None,
 ) -> AsyncGenerator:
     """Stream a single conversation turn via LangGraph.
 
@@ -123,20 +128,29 @@ async def run_turn(
         and checkpoint_snapshot.values.get("messages")
     )
 
+    if turn_log is None:
+        turn_log = TurnLog()
+
+    turn_log.add_event(
+        "graph.start",
+        "LangGraph turn started",
+        checkpoint_resume=has_checkpoint,
+        chat_history_messages=len(chat_history),
+    )
+
     if has_checkpoint:
         initial_state: AgentState = {
             "messages": [HumanMessage(content=question)],
             "question": question,
-            "turn_log": TurnLog(),
+            "turn_log": turn_log,
         }
     else:
         initial_state: AgentState = {
             "messages": chat_history + [HumanMessage(content=question)],
             "question": question,
-            "turn_log": TurnLog(),
+            "turn_log": turn_log,
         }
 
-    turn_log = TurnLog()
     agent_iteration = 0
     pending_tool_calls: Dict[str, str] = {}  # tool_call_id -> tool_name
 
@@ -147,6 +161,11 @@ async def run_turn(
         # ── Agent starts thinking ────────────────────────────────
         if kind == "on_chain_start" and node == "agent":
             agent_iteration += 1
+            turn_log.add_event(
+                "agent.iteration.start",
+                "Agent iteration started",
+                iteration=agent_iteration,
+            )
             if agent_iteration == 1:
                 yield _step_event("thinking", content="Сұрақты талдау...")
             else:
@@ -156,6 +175,15 @@ async def run_turn(
         if kind == "on_chat_model_end" and node == "agent":
             output = event["data"].get("output")
             if output and hasattr(output, "tool_calls") and output.tool_calls:
+                tool_names = [tc["name"] for tc in output.tool_calls]
+                turn_log.add_event(
+                    "agent.decision",
+                    "Agent requested tool execution",
+                    iteration=agent_iteration,
+                    tool_count=len(output.tool_calls),
+                    parallel=len(output.tool_calls) > 1,
+                    tools=tool_names,
+                )
                 for tc in output.tool_calls:
                     pending_tool_calls[tc["id"]] = tc["name"]
                     args_str = (
@@ -167,12 +195,25 @@ async def run_turn(
                         args=args_str,
                     )
 
+            else:
+                turn_log.add_event(
+                    "agent.decision",
+                    "Agent produced final answer without tools",
+                    iteration=agent_iteration,
+                )
+
         # ── Tool execution completes ─────────────────────────────
         if kind == "on_tool_end":
             tool_name = event.get("name", "")
             output = event["data"].get("output", "")
             output_str = str(output)
             summary = _summarize_tool_result(output_str)
+            turn_log.add_event(
+                "tool.result.stream",
+                "Tool result forwarded to stream",
+                tool=tool_name,
+                summary=summary,
+            )
             yield _step_event(
                 "tool_result",
                 tool=tool_name,
@@ -184,6 +225,12 @@ async def run_turn(
             chunk = event["data"]["chunk"]
             content = _get_chunk_content(chunk)
             if content and not chunk.tool_call_chunks:
+                if not turn_log.events or turn_log.events[-1].stage != "answer.stream":
+                    turn_log.add_event(
+                        "answer.stream",
+                        "Streaming final answer tokens",
+                        iteration=agent_iteration,
+                    )
                 yield content
 
         # ── Capture turn log ─────────────────────────────────────

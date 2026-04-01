@@ -49,6 +49,13 @@ async def generate_response(
     """
     try:
         pipeline_start = time.perf_counter()
+        turn_log = TurnLog()
+        turn_log.add_event(
+            "turn.start",
+            "Chat turn started",
+            knowledge_base_ids=knowledge_base_ids,
+            message_count=len(messages.get("messages", [])),
+        )
 
         # Persist user message and create bot placeholder in one commit
         user_message = Message(content=query, role="user", chat_id=chat_id)
@@ -73,11 +80,22 @@ async def generate_response(
 
         # Build deterministic tools from DB
         tools = create_tools(db=db, knowledge_base_ids=knowledge_base_ids)
+        turn_log.add_event(
+            "tools.build",
+            "Deterministic tools prepared",
+            tool_count=len(tools),
+        )
 
         # Get LLM with tools bound (from cache)
         _llm_key = (settings.CHAT_PROVIDER, 0.0, True)
         llm = _llm_cache[_llm_key]
         llm_with_tools = llm.bind_tools(tools)
+        turn_log.add_event(
+            "llm.bind",
+            "Bound tools to chat model",
+            provider=settings.CHAT_PROVIDER,
+            tool_bound=True,
+        )
 
         # Build chat history from DB messages
         chat_history: List = []
@@ -99,7 +117,6 @@ async def generate_response(
 
         # ═══ Stream the agent turn ═══
         full_response = ""
-        turn_log = None
 
         async for item in run_turn(
             question=query,
@@ -107,6 +124,7 @@ async def generate_response(
             chat_id=chat_id,
             llm_with_tools=llm_with_tools,
             tools=tools,
+            turn_log=turn_log,
         ):
             if isinstance(item, TurnLog):
                 turn_log = item
@@ -120,12 +138,15 @@ async def generate_response(
 
         if turn_log:
             turn_log.pipeline_total_ms = (time.perf_counter() - pipeline_start) * 1000
-            logger.info(
-                "[TurnLog] iterations=%d tools=%s total_ms=%.0f",
-                turn_log.iterations,
-                turn_log.tool_calls,
-                turn_log.pipeline_total_ms,
+            turn_log.add_event(
+                "turn.finish",
+                "Chat turn completed",
+                iterations=turn_log.iterations,
+                tool_calls=turn_log.tool_calls,
+                tool_batches=len({item.batch_id for item in turn_log.tool_executions}),
+                total_ms=round(turn_log.pipeline_total_ms, 2),
             )
+            logger.info("\n%s", turn_log.format_backend_report(chat_id, status="ok"))
 
         yield _finish_event("stop")
 
@@ -133,6 +154,12 @@ async def generate_response(
         db.commit()
 
     except Exception as e:
+        turn_log.add_event(
+            "turn.error",
+            "Chat turn failed",
+            error=str(e),
+        )
+        logger.error("\n%s", turn_log.format_backend_report(chat_id, status="error"))
         logger.exception("Error generating response for chat_id=%s: %s", chat_id, e)
         yield f"0:{json.dumps(_SYSTEM_ERROR_KZ)}\n"
         yield _finish_event("error")
