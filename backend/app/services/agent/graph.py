@@ -94,6 +94,17 @@ def _get_chunk_content(chunk) -> str:
     return content if isinstance(content, str) else ""
 
 
+def _get_message_content(message) -> str:
+    """Extract text content from a completed AI message."""
+    content = getattr(message, "content", "")
+    if isinstance(content, list):
+        return "".join(
+            block.get("text", "") if isinstance(block, dict) else str(block)
+            for block in content
+        )
+    return content if isinstance(content, str) else ""
+
+
 async def run_turn(
     question: str,
     chat_history: List,
@@ -152,7 +163,7 @@ async def run_turn(
         }
 
     agent_iteration = 0
-    pending_tool_calls: Dict[str, str] = {}  # tool_call_id -> tool_name
+    buffered_answer_chunks: List[str] = []
 
     async for event in graph_app.astream_events(initial_state, config, version="v2"):
         kind = event["event"]
@@ -185,7 +196,6 @@ async def run_turn(
                     tools=tool_names,
                 )
                 for tc in output.tool_calls:
-                    pending_tool_calls[tc["id"]] = tc["name"]
                     args_str = (
                         json.dumps(tc["args"], ensure_ascii=False) if tc["args"] else ""
                     )
@@ -194,6 +204,7 @@ async def run_turn(
                         tool=tc["name"],
                         args=args_str,
                     )
+                buffered_answer_chunks.clear()
 
             else:
                 turn_log.add_event(
@@ -201,6 +212,17 @@ async def run_turn(
                     "Agent produced final answer without tools",
                     iteration=agent_iteration,
                 )
+                final_content = _get_message_content(output)
+                if not final_content:
+                    final_content = "".join(buffered_answer_chunks)
+                if final_content:
+                    turn_log.add_event(
+                        "answer.stream",
+                        "Streaming final answer tokens",
+                        iteration=agent_iteration,
+                    )
+                    yield final_content
+                buffered_answer_chunks.clear()
 
         # ── Tool execution completes ─────────────────────────────
         if kind == "on_tool_end":
@@ -225,13 +247,7 @@ async def run_turn(
             chunk = event["data"]["chunk"]
             content = _get_chunk_content(chunk)
             if content and not chunk.tool_call_chunks:
-                if not turn_log.events or turn_log.events[-1].stage != "answer.stream":
-                    turn_log.add_event(
-                        "answer.stream",
-                        "Streaming final answer tokens",
-                        iteration=agent_iteration,
-                    )
-                yield content
+                buffered_answer_chunks.append(content)
 
         # ── Capture turn log ─────────────────────────────────────
         if kind == "on_chain_end":

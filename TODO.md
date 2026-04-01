@@ -5,7 +5,7 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 ### Todo
 
 - agent is too wordy, work with system prompt  
-- animations and agent vis are bad  
+- animations and agent vis are bad. add support for advanced markdown, e.g tables  
 - after reload the chat page, it errors with task canceled  
 - add glossary tool (fuzzy search over terms database)  
 
