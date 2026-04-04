@@ -5,6 +5,7 @@
 ### Fixed
 - Fixed a document-processing regression in `extract_pages()` where a loop counter shadowed the `BookIndex` object and caused `'int' object has no attribute 'metadata'` during OCR page chunk creation
 - Kept failed document-processing rows visible after reload by returning failed tasks from the knowledge-base tasks endpoint and marking `DocumentUpload` records as failed when processing errors occur
+- Restored `start_page - 1` through `end_page + 1` work extraction padding while keeping sparse OCR page mapping based on actual page numbers instead of list offsets
 
 ## [2026-04-04]
 

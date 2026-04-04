@@ -41,13 +41,16 @@ class BookIndexerTests(unittest.TestCase):
         self.assertEqual("Author", docs[0].metadata["main_author"])
         self.assertEqual("Book", docs[0].metadata["book_title"])
 
-    def test_extract_works_uses_actual_page_numbers_for_sparse_ocr(self) -> None:
-        """Sparse OCR page sets should not drift into later page numbers."""
+    def test_extract_works_uses_padded_actual_page_numbers_for_sparse_ocr(self) -> None:
+        """Sparse OCR page sets should use page padding without index drift."""
 
         pages = [
+            make_page(326, "Page 326 body. " * 8),
             make_page(327, "Page 327 body. " * 8),
+            make_page(330, "Page 330 body. " * 8),
             make_page(331, "Page 331 body. " * 8),
             make_page(332, "Page 332 body. " * 8),
+            make_page(333, "Page 333 body. " * 8),
         ]
         index = BookIndex(
             summary="summary",
@@ -62,11 +65,15 @@ class BookIndexerTests(unittest.TestCase):
 
         self.assertEqual(2, len(docs))
         self.assertEqual("Work One", docs[0].metadata["work_title"])
+        self.assertIn("Page 326 body.", docs[0].page_content)
         self.assertIn("Page 327 body.", docs[0].page_content)
+        self.assertNotIn("Page 330 body.", docs[0].page_content)
         self.assertNotIn("Page 331 body.", docs[0].page_content)
         self.assertEqual("Work Two", docs[1].metadata["work_title"])
+        self.assertIn("Page 330 body.", docs[1].page_content)
         self.assertIn("Page 331 body.", docs[1].page_content)
         self.assertIn("Page 332 body.", docs[1].page_content)
+        self.assertIn("Page 333 body.", docs[1].page_content)
         self.assertNotIn("Page 327 body.", docs[1].page_content)
 
     def test_enrich_index_with_toc_adds_real_toc_range(self) -> None:

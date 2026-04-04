@@ -403,7 +403,7 @@ def extract_works(
     """Extract each work's text from the full page list.
 
     For each WorkEntry in the index, joins OCR pages whose actual page numbers
-    fall inside the declared TOC range.
+    fall inside ``[start_page - 1, end_page + 1]`` for a small context margin.
 
     Args:
         pages: Full list of cleaned page documents.
@@ -416,7 +416,11 @@ def extract_works(
     docs: List[LangchainDocument] = []
 
     for work in index.works:
-        extracted_pages = _select_pages_in_range(pages, work.start_page, work.end_page)
+        extracted_pages = _select_pages_in_range(
+            pages,
+            max(1, work.start_page - 1),
+            work.end_page + 1,
+        )
         text = "\n\n".join(
             page.page_content for page in extracted_pages if page.page_content.strip()
         )
