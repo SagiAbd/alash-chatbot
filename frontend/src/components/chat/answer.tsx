@@ -287,13 +287,20 @@ export const Answer = ({
 };
 
 function useStreamingText(text: string, isStreaming: boolean): string {
-  const [displayed, setDisplayed] = useState(text);
-  const displayedLenRef = useRef(text.length);
+  const [displayed, setDisplayed] = useState(isStreaming ? "" : text);
+  const displayedLenRef = useRef(isStreaming ? 0 : text.length);
   const targetRef = useRef(text);
   const rafRef = useRef<number>(0);
   const prevTimeRef = useRef(0);
 
   targetRef.current = text;
+
+  useEffect(() => {
+    if (isStreaming && displayedLenRef.current > text.length) {
+      displayedLenRef.current = 0;
+      setDisplayed("");
+    }
+  }, [isStreaming, text.length]);
 
   useEffect(() => {
     if (!isStreaming) {

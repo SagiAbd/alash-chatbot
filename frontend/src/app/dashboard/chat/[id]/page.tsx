@@ -22,8 +22,7 @@ interface Chat {
   messages: ChatMessage[];
 }
 
-/** Strip <think>…</think> blocks (including unclosed ones during streaming). */
-function stripThinkBlocks(content: string): string {
+function getVisibleAssistantContent(content: string): string {
   return content
     .replace(/<think>[\s\S]*?<\/think>/g, "")
     .replace(/<think>[\s\S]*$/, "")
@@ -142,17 +141,19 @@ export default function ChatPage({ params }: { params: { id: string } }) {
   const fetchChat = async () => {
     try {
       const data: Chat = await api.get(`/api/chat/${params.id}`);
-      const formattedMessages = data.messages.map((msg) => {
-        let content = msg.content || "";
-        if (msg.role === "assistant" && content.includes("__LLM_RESPONSE__")) {
-          content = content.split("__LLM_RESPONSE__").pop() || "";
-        }
-        return {
-          id: msg.id.toString(),
-          role: msg.role,
-          content,
-        };
-      });
+      const formattedMessages = data.messages
+        .filter((msg) => !(msg.role === "assistant" && !msg.content.trim()))
+        .map((msg) => {
+          let content = msg.content || "";
+          if (msg.role === "assistant" && content.includes("__LLM_RESPONSE__")) {
+            content = content.split("__LLM_RESPONSE__").pop() || "";
+          }
+          return {
+            id: msg.id.toString(),
+            role: msg.role,
+            content,
+          };
+        });
       setMessages(formattedMessages);
     } catch (error) {
       console.error("Failed to fetch chat:", error);
@@ -196,9 +197,16 @@ export default function ChatPage({ params }: { params: { id: string } }) {
     return -1;
   }, [messages]);
 
+  const lastMessage = messages[messages.length - 1];
+  const lastVisibleAssistantContent =
+    lastMessage?.role === "assistant"
+      ? getVisibleAssistantContent(lastMessage.content)
+      : "";
   const showLoadingDots =
     isLoading &&
-    messages[messages.length - 1]?.role !== "assistant";
+    (!lastMessage ||
+      lastMessage.role !== "assistant" ||
+      lastVisibleAssistantContent.length === 0);
 
   return (
     <DashboardLayout>
@@ -245,9 +253,12 @@ export default function ChatPage({ params }: { params: { id: string } }) {
 
             if (message.role === "assistant") {
               const isMsgStreaming =
-                isLoading &&
-                message.id === messages[messages.length - 1]?.id;
-              const cleaned = stripThinkBlocks(message.content);
+                isLoading && index === messages.length - 1;
+              const visibleContent = getVisibleAssistantContent(message.content);
+
+              if (!visibleContent) {
+                return null;
+              }
 
               return (
                 <div
@@ -261,7 +272,7 @@ export default function ChatPage({ params }: { params: { id: string } }) {
                   />
                   <div className="max-w-[95%] lg:max-w-[85%] rounded-2xl bg-muted/60 px-4 py-3 shadow-sm">
                     <Answer
-                      markdown={cleaned}
+                      markdown={visibleContent}
                       isStreaming={isMsgStreaming}
                     />
                   </div>
@@ -315,7 +326,7 @@ export default function ChatPage({ params }: { params: { id: string } }) {
                 onKeyDown={handleKeyDown}
                 placeholder="Сұрағыңызды жазыңыз..."
                 rows={1}
-                className="min-h-[44px] w-full resize-none bg-transparent px-4 py-[11px] text-sm leading-[20px] placeholder:text-muted-foreground focus:outline-none"
+                className="min-h-[44px] w-full resize-none bg-transparent px-4 py-[11px] text-sm leading-6 placeholder:text-muted-foreground focus:outline-none"
                 style={{ maxHeight: 160 }}
               />
             </div>

@@ -163,7 +163,7 @@ async def run_turn(
         }
 
     agent_iteration = 0
-    buffered_answer_chunks: List[str] = []
+    streamed_run_ids: set[str] = set()
 
     async for event in graph_app.astream_events(initial_state, config, version="v2"):
         kind = event["event"]
@@ -204,7 +204,6 @@ async def run_turn(
                         tool=tc["name"],
                         args=args_str,
                     )
-                buffered_answer_chunks.clear()
 
             else:
                 turn_log.add_event(
@@ -213,16 +212,13 @@ async def run_turn(
                     iteration=agent_iteration,
                 )
                 final_content = _get_message_content(output)
-                if not final_content:
-                    final_content = "".join(buffered_answer_chunks)
-                if final_content:
+                if final_content and event.get("run_id") not in streamed_run_ids:
                     turn_log.add_event(
                         "answer.stream",
                         "Streaming final answer tokens",
                         iteration=agent_iteration,
                     )
                     yield final_content
-                buffered_answer_chunks.clear()
 
         # ── Tool execution completes ─────────────────────────────
         if kind == "on_tool_end":
@@ -247,7 +243,8 @@ async def run_turn(
             chunk = event["data"]["chunk"]
             content = _get_chunk_content(chunk)
             if content and not chunk.tool_call_chunks:
-                buffered_answer_chunks.append(content)
+                streamed_run_ids.add(event["run_id"])
+                yield content
 
         # ── Capture turn log ─────────────────────────────────────
         if kind == "on_chain_end":

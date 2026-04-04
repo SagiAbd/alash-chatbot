@@ -5,6 +5,11 @@
 ### Improved
 - Refined the chat page UX with smarter auto-scroll behavior, auto-resizing input, simplified assistant message rendering, and smoother loading/message animations
 - Upgraded chat markdown rendering with raw HTML support, bracketed URL normalization, styled tables/code/quotes/lists, and token-by-token streaming output animation
+- Matched the chat UI more closely to the RGIS frontend by restoring the larger answer text size and preventing loading dots from overlapping with the streaming assistant bubble
+- Matched the chat textarea typography more closely to generated answers by using the same visual text scale and line height
+- Fixed the chat stream so hidden think phases keep showing the 3-dot loading state and visible answer text animates in smoothly instead of appearing all at once
+- Matched `<think>` token handling to the RGIS chat flow so think blocks render through the markdown pipeline and streaming state follows the last assistant message consistently
+- Adapted the RGIS chat UI to our backend by filtering visible `<think>` output on the frontend and streaming agent text chunks immediately from the backend graph instead of buffering the full answer
 - Expanded `AGENTS.md` with `TODO.md` workflow rules, iterative delivery guidance, and a requirement to suggest a commit message after changes
 - Aligned `TODO.md` section naming with the documented plain-list workflow
 
