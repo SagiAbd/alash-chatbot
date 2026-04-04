@@ -1,5 +1,11 @@
 # Changelog
 
+## [2026-04-05]
+
+### Fixed
+- Fixed a document-processing regression in `extract_pages()` where a loop counter shadowed the `BookIndex` object and caused `'int' object has no attribute 'metadata'` during OCR page chunk creation
+- Kept failed document-processing rows visible after reload by returning failed tasks from the knowledge-base tasks endpoint and marking `DocumentUpload` records as failed when processing errors occur
+
 ## [2026-04-04]
 
 ### Added

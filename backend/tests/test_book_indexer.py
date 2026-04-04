@@ -7,6 +7,7 @@ from app.services.book_indexer import (
     BookMetadata,
     WorkEntry,
     enrich_index_with_toc,
+    extract_pages,
     extract_toc,
     extract_works,
 )
@@ -19,6 +20,27 @@ def make_page(page_number: int, text: str) -> LangchainDocument:
 
 
 class BookIndexerTests(unittest.TestCase):
+    def test_extract_pages_keeps_book_metadata(self) -> None:
+        """Page extraction should use the book index metadata, not loop counters."""
+
+        pages = [
+            make_page(12, "Page 12 body. " * 4),
+            make_page(14, "Page 14 body. " * 4),
+        ]
+        book_index = BookIndex(
+            summary="summary",
+            metadata=BookMetadata(book_title="Book", main_author="Author"),
+            works=[],
+        )
+
+        docs = extract_pages(pages, book_index, "book.json")
+
+        self.assertEqual(2, len(docs))
+        self.assertEqual(12, docs[0].metadata["page_number"])
+        self.assertEqual(14, docs[1].metadata["page_number"])
+        self.assertEqual("Author", docs[0].metadata["main_author"])
+        self.assertEqual("Book", docs[0].metadata["book_title"])
+
     def test_extract_works_uses_actual_page_numbers_for_sparse_ocr(self) -> None:
         """Sparse OCR page sets should not drift into later page numbers."""
 

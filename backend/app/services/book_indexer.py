@@ -501,14 +501,14 @@ def extract_toc(
 
 def extract_pages(
     pages: List[LangchainDocument],
-    index: BookIndex,
+    book_index: BookIndex,
     file_name: str,
 ) -> List[LangchainDocument]:
     """Extract clean raw pages as standalone retrieval records.
 
     Args:
         pages: Full list of cleaned page documents.
-        index: BookIndex from index_book().
+        book_index: BookIndex from index_book().
         file_name: Source file name (stored in chunk metadata).
 
     Returns:
@@ -516,8 +516,8 @@ def extract_pages(
     """
     docs: List[LangchainDocument] = []
 
-    for index, page in enumerate(pages, start=1):
-        page_number = _page_number(page, index)
+    for page_index, page in enumerate(pages, start=1):
+        page_number = _page_number(page, page_index)
         if not page.page_content.strip():
             continue
 
@@ -527,8 +527,8 @@ def extract_pages(
                 metadata={
                     "source": file_name,
                     "page_number": page_number,
-                    "main_author": index.metadata.main_author,
-                    "book_title": index.metadata.book_title,
+                    "main_author": book_index.metadata.main_author,
+                    "book_title": book_index.metadata.book_title,
                 },
             )
         )

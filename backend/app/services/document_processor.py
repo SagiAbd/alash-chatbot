@@ -374,6 +374,10 @@ def process_document_background(
         logger.error(f"Task {task_id}: Book indexing failed: {exc}")
         task.status = "failed"
         task.error_message = str(exc)
+        upload = task.document_upload
+        if upload:
+            upload.status = "failed"
+            upload.error_message = str(exc)
         db.commit()
         # Clean up temp MinIO file
         try:
@@ -387,6 +391,10 @@ def process_document_background(
         logger.error(traceback.format_exc())
         task.status = "failed"
         task.error_message = f"Unexpected error: {exc}"
+        upload = task.document_upload
+        if upload:
+            upload.status = "failed"
+            upload.error_message = f"Unexpected error: {exc}"
         db.commit()
         try:
             minio_client = get_minio_client()

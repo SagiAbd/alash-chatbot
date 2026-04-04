@@ -414,10 +414,11 @@ async def get_kb_tasks(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """
-    Get all non-completed processing tasks for a knowledge base.
+    Get all non-completed and failed processing tasks for a knowledge base.
 
-    Returns pending/processing tasks so the UI can show in-progress uploads
-    after a page reload without relying on in-memory state.
+    Returns pending/processing/failed tasks so the UI can show unfinished uploads
+    and keep failures visible after a page reload without relying on in-memory
+    state.
     """
     kb = (
         db.query(KnowledgeBase)
@@ -432,7 +433,7 @@ async def get_kb_tasks(
         .options(selectinload(ProcessingTask.document_upload))
         .filter(
             ProcessingTask.knowledge_base_id == kb_id,
-            ProcessingTask.status.in_(["pending", "processing"]),
+            ProcessingTask.status.in_(["pending", "processing", "failed"]),
         )
         .all()
     )
