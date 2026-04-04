@@ -157,9 +157,8 @@ function Section({
 
 function WorkChunk({ chunk, idx }: { chunk: Chunk; idx: number }) {
   const [open, setOpen] = useState(false);
-  const title =
-    chunk.chunk_metadata.work_title ??
-    (chunk.chunk_metadata.section_type === "toc" ? "Table of Contents" : `Work ${idx + 1}`);
+  const rawTitle = chunk.chunk_metadata.work_title?.trim();
+  const title = rawTitle ?? `Work ${idx + 1}`;
 
   return (
     <div className="py-3">
@@ -167,7 +166,7 @@ function WorkChunk({ chunk, idx }: { chunk: Chunk; idx: number }) {
         onClick={() => setOpen((o) => !o)}
         className="flex items-baseline justify-between gap-4 w-full text-left hover:text-foreground transition-colors"
       >
-        <span className="font-medium flex items-center gap-1">
+        <span className="min-w-0 flex-1 font-medium flex items-center gap-1">
           {open ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
           {title}
         </span>

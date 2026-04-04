@@ -63,6 +63,8 @@ class BookIndex(BaseModel):
     metadata: BookMetadata
     works: List[WorkEntry]
     toc: Optional[TOCEntry] = None
+    toc_find_failed: bool = False
+    toc_failure_reason: str = ""
 
 
 class BookIndexingError(Exception):
@@ -158,43 +160,12 @@ def find_toc_page_indexes(pages: List[LangchainDocument]) -> List[int]:
             continue
 
         selected[index] = None
-        for next_index in range(index + 1, min(index + 4, total_pages)):
+        for next_index in range(index + 1, min(index + 6, total_pages)):
             if not _looks_like_toc_page(pages[next_index].page_content):
                 break
             selected[next_index] = None
 
     return sorted(selected)
-
-
-def _extract_toc_title(text: str) -> str:
-    """Extract the visible TOC heading from the page text when possible."""
-
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped and _contains_toc_pattern(stripped):
-            return re.sub(r"\s+", " ", stripped)[:120]
-
-    return "Table of Contents"
-
-
-def enrich_index_with_toc(
-    pages: List[LangchainDocument],
-    index: BookIndex,
-) -> BookIndex:
-    """Attach a deterministic TOC entry to the LLM-generated index."""
-
-    toc_indexes = find_toc_page_indexes(pages)
-    if not toc_indexes:
-        return index
-
-    first_index = toc_indexes[0]
-    last_index = toc_indexes[-1]
-    index.toc = TOCEntry(
-        title=_extract_toc_title(pages[first_index].page_content),
-        start_page=_page_number(pages[first_index], first_index + 1),
-        end_page=_page_number(pages[last_index], last_index + 1),
-    )
-    return index
 
 
 def _select_pages_in_range(
@@ -260,33 +231,36 @@ def build_analysis_input(pages: List[LangchainDocument]) -> str:
         Concatenated text with ``--- Page N ---`` separators.
     """
     n = len(pages)
-    selected: dict[int, LangchainDocument] = {}
+    first_indexes = list(range(min(3, n)))
+    last_indexes = list(range(max(0, n - 2), n))
+    toc_indexes = find_toc_page_indexes(pages)
 
-    # First 3
-    for i in range(min(3, n)):
-        selected[i] = pages[i]
+    def _render_page_block(indexes: List[int]) -> str:
+        parts: List[str] = []
+        for idx in indexes:
+            page_num = _page_number(pages[idx], idx + 1)
+            parts.append(f"--- Page {page_num} ---\n{pages[idx].page_content}")
+        return "\n\n".join(parts)
 
-    # Last 2
-    for i in range(max(0, n - 2), n):
-        selected[i] = pages[i]
+    sections = [
+        "First pages:\n" + _render_page_block(first_indexes),
+        (
+            "Candidate TOC pages:\n" + _render_page_block(toc_indexes)
+            if toc_indexes
+            else "Candidate TOC pages:\n(none detected)"
+        ),
+        "Last pages:\n" + _render_page_block(last_indexes),
+    ]
 
-    for index in find_toc_page_indexes(pages):
-        selected[index] = pages[index]
-
-    parts: List[str] = []
-    for idx in sorted(selected):
-        page_num = _page_number(selected[idx], idx + 1)
-        parts.append(f"--- Page {page_num} ---\n{selected[idx].page_content}")
-
-    return "\n\n".join(parts)
+    return "\n\n".join(section for section in sections if section.strip())
 
 
 # ─── LLM analysis ─────────────────────────────────────────────────────────────
 
 _PROMPT_TEMPLATE = """\
 You are analyzing the first pages, last pages, and table of contents of a scanned book.
-This is likely a book about a Kazakh intellectual figure from the early 20th
-century (Alash era).
+This is a book about a Kazakh and Alash intellectual figure from the early 20th
+century.
 The book may contain poems, articles, monologues, textbooks, legal texts,
 or texts from any field.
 
@@ -303,6 +277,13 @@ Respond with ONLY valid JSON, no markdown, no explanation.
     "publisher": "Publisher name if visible, else empty string",
     "year": "Publication year if visible, else empty string"
   }},
+  "toc": {{
+    "title": "Visible heading of the actual table of contents page",
+    "start_page": <first actual TOC page number>,
+    "end_page": <last actual TOC page number>
+  }},
+  "toc_find_failed": false,
+  "toc_failure_reason": "",
   "works": [
     {{
       "title": "Title of the work exactly as it appears in the table of contents",
@@ -315,12 +296,21 @@ Respond with ONLY valid JSON, no markdown, no explanation.
 Rules:
 - Page numbers come ONLY from the table of contents, not from your general knowledge
 - Page numbers correspond to the --- Page N --- markers in the text below
+- The "Candidate TOC pages" section contains OCR pages
+  that were heuristically selected as possible TOC pages
+- Decide yourself whether those candidate TOC pages are really a table of contents
 - main_author is the person this book is about, NOT the editor or foreword writer
 - If the author appears in the known authors list below, use the exact same spelling
+- Fill toc.title/start_page/end_page from the actual
+  table of contents pages when they are valid
 - Include every titled entry from the table of contents in works[]
 - end_page for a work is start_page of the next work minus 1
   (or last page of the book for the final work)
-- If no table of contents is visible, return works: []
+- If the candidate TOC pages do not actually look like a
+  table of contents, or no valid TOC is visible, set toc to null,
+  set toc_find_failed to true, explain why in toc_failure_reason,
+  and return works: []
+- If TOC looks valid, set toc_find_failed to false and toc_failure_reason to ""
 - Write the summary in the same language as the book content
   (Kazakh if the book is in Kazakh, Russian if Russian)
 
@@ -458,50 +448,6 @@ def extract_works(
         )
 
     return docs
-
-
-def extract_toc(
-    pages: List[LangchainDocument],
-    index: BookIndex,
-    file_name: str,
-) -> Optional[LangchainDocument]:
-    """Extract the table of contents as a standalone section document."""
-
-    if index.toc is None:
-        return None
-
-    extracted_pages = _select_pages_in_range(
-        pages,
-        index.toc.start_page,
-        index.toc.end_page,
-    )
-    if not extracted_pages:
-        logger.warning(
-            "TOC pages %s-%s matched no OCR pages, skipping",
-            index.toc.start_page,
-            index.toc.end_page,
-        )
-        return None
-
-    text = "\n\n".join(
-        page.page_content for page in extracted_pages if page.page_content.strip()
-    )
-    if not text.strip():
-        return None
-
-    return LangchainDocument(
-        page_content=text,
-        metadata={
-            "source": file_name,
-            "work_title": index.toc.title,
-            "main_author": index.metadata.main_author,
-            "book_title": index.metadata.book_title,
-            "start_page": index.toc.start_page,
-            "end_page": index.toc.end_page,
-            "section_type": "toc",
-        },
-    )
-
 
 def extract_pages(
     pages: List[LangchainDocument],

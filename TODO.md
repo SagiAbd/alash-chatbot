@@ -14,6 +14,7 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 
 ### Done
 
+- make TOC validation LLM-only and fail explicitly when TOC detection is unreliable  
 - add knowledge base export/import round-trip as JSON  
 - improve llm answer style to docs style and kazakhi  
 - warn agent that padded work content may include adjacent context  

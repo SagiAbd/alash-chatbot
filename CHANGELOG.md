@@ -8,11 +8,14 @@
 
 ### Improved
 - Aligned the knowledge-base detail page actions so `Export KB` now sits beside `Upload documents` on the same row
+- Switched TOC handling to an LLM-owned validation flow: candidate TOC pages are shown to the model explicitly, deterministic TOC enrichment/storage was removed, and TOC-only chunk retrieval is no longer exposed in the document viewer
+- Expanded candidate TOC capture so the LLM can inspect longer multi-page tables of contents, up to roughly 5 consecutive TOC pages from the first detected heading
 
 ### Fixed
 - Fixed a document-processing regression in `extract_pages()` where a loop counter shadowed the `BookIndex` object and caused `'int' object has no attribute 'metadata'` during OCR page chunk creation
 - Kept failed document-processing rows visible after reload by returning failed tasks from the knowledge-base tasks endpoint and marking `DocumentUpload` records as failed when processing errors occur
 - Restored `start_page - 1` through `end_page + 1` work extraction padding while keeping sparse OCR page mapping based on actual page numbers instead of list offsets
+- Added an explicit `TOC find failed: ...` processing error when the LLM decides the extracted candidate TOC pages do not actually contain a valid table of contents
 
 ### Improved
 - Updated the agent prompt and `get_work_content` tool guidance to warn that padded work extraction can include adjacent-context pages, so retrieval claims must be checked against the correct work/book/page before answering

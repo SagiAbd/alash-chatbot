@@ -6,9 +6,8 @@ from app.services.book_indexer import (
     BookIndex,
     BookMetadata,
     WorkEntry,
-    enrich_index_with_toc,
+    build_analysis_input,
     extract_pages,
-    extract_toc,
     extract_works,
 )
 
@@ -76,43 +75,21 @@ class BookIndexerTests(unittest.TestCase):
         self.assertIn("Page 333 body.", docs[1].page_content)
         self.assertNotIn("Page 327 body.", docs[1].page_content)
 
-    def test_enrich_index_with_toc_adds_real_toc_range(self) -> None:
-        """Detected TOC pages should be exposed separately from works."""
+    def test_build_analysis_input_marks_candidate_toc_pages(self) -> None:
+        """LLM input should expose candidate TOC pages as a separate section."""
 
         pages = [
             make_page(5, "Мазмұны\nБірінші бөлім .... 10\nЕкінші бөлім .... 20"),
             make_page(6, "Үшінші бөлім .... 30\nТөртінші бөлім .... 40"),
             make_page(7, "Actual work body. " * 8),
         ]
-        index = BookIndex(
-            summary="summary",
-            metadata=BookMetadata(book_title="Book", main_author="Author"),
-            works=[WorkEntry(title="Work One", start_page=10, end_page=20)],
-        )
 
-        enriched = enrich_index_with_toc(pages, index)
-        toc_doc = extract_toc(pages, enriched, "book.json")
+        analysis_input = build_analysis_input(pages)
 
-        self.assertIsNotNone(enriched.toc)
-        toc = enriched.toc
-        self.assertEqual("Мазмұны", toc.title if toc else None)
-        self.assertEqual(5, toc.start_page if toc else None)
-        self.assertEqual(6, toc.end_page if toc else None)
-        self.assertIsNotNone(toc_doc)
-        toc_section = toc_doc
-        self.assertEqual(
-            "toc",
-            toc_section.metadata["section_type"] if toc_section else None,
-        )
-        self.assertIn("Мазмұны", toc_section.page_content if toc_section else "")
-        self.assertIn(
-            "Төртінші бөлім",
-            toc_section.page_content if toc_section else "",
-        )
-        self.assertNotIn(
-            "Actual work body.",
-            toc_section.page_content if toc_section else "",
-        )
+        self.assertIn("Candidate TOC pages:", analysis_input)
+        self.assertIn("--- Page 5 ---", analysis_input)
+        self.assertIn("--- Page 6 ---", analysis_input)
+        self.assertIn("Мазмұны", analysis_input)
 
 
 if __name__ == "__main__":
