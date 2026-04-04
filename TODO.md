@@ -4,6 +4,7 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 
 ### Todo
 
+- add agent steps calling animation  
 - chatbot is lazy on tool calling.  
 - agent is too wordy, work with system prompt  
 - animations and agent vis are bad. add support for advanced markdown, e.g tables  
@@ -15,6 +16,9 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 
 ### Done
 
+- improve author-name fuzzy matching and force evidence-first author study answers
+- fix document chunk modal query causing MySQL sort-memory errors
+- redesign chat state to use DB transcript only and add non-vector search + raw page verification
 - adapt rgis chat UI to our backend by hiding think tokens and restoring incremental token streaming  
 - match think token rendering with rgis chat behavior  
 - fix chat streaming and thinking dots behavior to match rgis expectations  

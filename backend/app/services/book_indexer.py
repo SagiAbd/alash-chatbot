@@ -3,7 +3,7 @@ Book indexer service.
 
 Loads JSON OCR page arrays, extracts key pages for LLM analysis,
 uses the LLM to identify every work listed in the table of contents,
-then extracts each work's text as a standalone document for the vector store.
+then extracts both work-level texts and raw pages for deterministic retrieval.
 """
 
 import json
@@ -176,18 +176,21 @@ def build_analysis_input(pages: List[LangchainDocument]) -> str:
 
 _PROMPT_TEMPLATE = """\
 You are analyzing the first pages, last pages, and table of contents of a scanned book.
-This is likely a book about a Kazakh intellectual figure from the early 20th century (Alash era).
-The book may contain poems, articles, monologues, textbooks, legal texts, or texts from any field.
+This is likely a book about a Kazakh intellectual figure from the early 20th
+century (Alash era).
+The book may contain poems, articles, monologues, textbooks, legal texts,
+or texts from any field.
 
 {known_authors_hint}
 
-Extract structured information as JSON. Respond with ONLY valid JSON, no markdown, no explanation.
+Extract structured information as JSON.
+Respond with ONLY valid JSON, no markdown, no explanation.
 
 {{
-  "summary": "Description of the book's main author and a brief summary of its contents based on the table of contents",
+  "summary": "Short description of the main author and the book contents",
   "metadata": {{
     "book_title": "Title of the book as it appears",
-    "main_author": "Full name of the main subject of the book (the Alash figure this book is about)",
+    "main_author": "Full name of the main subject of the book",
     "publisher": "Publisher name if visible, else empty string",
     "year": "Publication year if visible, else empty string"
   }},
@@ -206,11 +209,14 @@ Rules:
 - main_author is the person this book is about, NOT the editor or foreword writer
 - If the author appears in the known authors list below, use the exact same spelling
 - Include every titled entry from the table of contents in works[]
-- end_page for a work is start_page of the next work minus 1 (or last page of the book for the final work)
+- end_page for a work is start_page of the next work minus 1
+  (or last page of the book for the final work)
 - If no table of contents is visible, return works: []
-- Write the summary in the same language as the book content (Kazakh if the book is in Kazakh, Russian if Russian)
+- Write the summary in the same language as the book content
+  (Kazakh if the book is in Kazakh, Russian if Russian)
 
-You are given: the first pages of the book, the last pages, and the table of contents pages.
+You are given: the first pages of the book, the last pages,
+and the table of contents pages.
 
 Text:
 {analysis_input}
@@ -235,7 +241,8 @@ def index_book(
     """
     if known_authors:
         hint = (
-            "Known authors already in the database (use exact spelling if the author matches):\n"
+            "Known authors already in the database "
+            "(use exact spelling if the author matches):\n"
             + "\n".join(f"- {a}" for a in known_authors)
             + "\n"
         )
@@ -326,6 +333,43 @@ def extract_works(
                     "book_title": index.metadata.book_title,
                     "start_page": work.start_page,
                     "end_page": work.end_page,
+                },
+            )
+        )
+
+    return docs
+
+
+def extract_pages(
+    pages: List[LangchainDocument],
+    index: BookIndex,
+    file_name: str,
+) -> List[LangchainDocument]:
+    """Extract clean raw pages as standalone retrieval records.
+
+    Args:
+        pages: Full list of cleaned page documents.
+        index: BookIndex from index_book().
+        file_name: Source file name (stored in chunk metadata).
+
+    Returns:
+        List of LangchainDocument objects, one per cleaned page.
+    """
+    docs: List[LangchainDocument] = []
+
+    for page in pages:
+        page_number = int(page.metadata.get("page", 0))
+        if not page.page_content.strip():
+            continue
+
+        docs.append(
+            LangchainDocument(
+                page_content=page.page_content,
+                metadata={
+                    "source": file_name,
+                    "page_number": page_number,
+                    "main_author": index.metadata.main_author,
+                    "book_title": index.metadata.book_title,
                 },
             )
         )

@@ -2,7 +2,7 @@
 Document processor service.
 
 Handles uploading JSON OCR files to MinIO and processing them
-through the book indexer to produce work-level vector store entries.
+through the book indexer to produce work-level and page-level retrieval records.
 """
 
 import hashlib
@@ -27,6 +27,7 @@ from app.models.knowledge import Document, DocumentChunk, ProcessingTask
 from app.services.book_indexer import (
     BookIndexingError,
     build_analysis_input,
+    extract_pages,
     extract_works,
     index_book,
     load_pages_from_json,
@@ -108,7 +109,7 @@ def process_document_background(
     """Process a JSON OCR document in a background thread.
 
     Downloads the file from MinIO, runs book indexing via the LLM,
-    extracts work-level text segments, and stores them in the vector store.
+    extracts work-level text segments plus raw pages, and stores them in MySQL.
 
     Must be called via ``asyncio.to_thread`` to avoid blocking the event loop.
 
@@ -183,7 +184,8 @@ def process_document_background(
         book_index = index_book(analysis_input, known_authors=known_authors or None)
         logger.info(
             f"Task {task_id}: Analysis complete in {time.monotonic() - t0:.1f}s — "
-            f"{len(book_index.works)} works found, author: {book_index.metadata.main_author}"
+            f"{len(book_index.works)} works found, "
+            f"author: {book_index.metadata.main_author}"
         )
 
         if not book_index.works:
@@ -192,13 +194,14 @@ def process_document_background(
                 "Ensure the document contains a readable мазмұны/содержание page."
             )
 
-        # 6. Extract work-level text segments
+        # 6. Extract work-level text segments and raw pages
         work_docs = extract_works(pages, book_index, file_name)
         if not work_docs:
             raise BookIndexingError(
                 "All works produced empty text after extraction. "
                 "Check that page numbers in the table of contents are correct."
             )
+        page_docs = extract_pages(pages, book_index, file_name)
         logger.info(f"Task {task_id}: Extracted {len(work_docs)} work segments")
 
         # 7. Determine final file name (rename to "Author - Title.json" if available)
@@ -251,18 +254,26 @@ def process_document_background(
         t0 = time.monotonic()
         for i, doc in enumerate(work_docs):
             chunk_id = hashlib.sha256(
-                f"{kb_id}:{final_file_name}:{i}:{doc.page_content[:200]}".encode()
+                (
+                    f"work:{kb_id}:{final_file_name}:"
+                    f"{doc.metadata.get('work_title', i)}:{doc.page_content[:200]}"
+                ).encode()
             ).hexdigest()
 
             doc.metadata["kb_id"] = kb_id
             doc.metadata["document_id"] = document.id
             doc.metadata["chunk_id"] = chunk_id
+            doc.metadata["chunk_type"] = "work"
 
             db_chunk = DocumentChunk(
                 id=chunk_id,
                 document_id=document.id,
                 kb_id=kb_id,
                 file_name=file_name,
+                chunk_type="work",
+                chunk_label=doc.metadata.get("work_title"),
+                start_page=doc.metadata.get("start_page"),
+                end_page=doc.metadata.get("end_page"),
                 chunk_metadata={"page_content": doc.page_content, **doc.metadata},
                 hash=hashlib.sha256(
                     (doc.page_content + str(doc.metadata)).encode()
@@ -273,9 +284,40 @@ def process_document_background(
             if i > 0 and i % 50 == 0:
                 db.commit()
 
+        for i, doc in enumerate(page_docs):
+            page_number = int(doc.metadata.get("page_number", 0))
+            chunk_id = hashlib.sha256(
+                f"page:{kb_id}:{final_file_name}:{page_number}:{doc.page_content[:200]}".encode()
+            ).hexdigest()
+
+            doc.metadata["kb_id"] = kb_id
+            doc.metadata["document_id"] = document.id
+            doc.metadata["chunk_id"] = chunk_id
+            doc.metadata["chunk_type"] = "page"
+
+            db_chunk = DocumentChunk(
+                id=chunk_id,
+                document_id=document.id,
+                kb_id=kb_id,
+                file_name=file_name,
+                chunk_type="page",
+                chunk_label=f"Page {page_number}",
+                page_number=page_number,
+                start_page=page_number,
+                end_page=page_number,
+                chunk_metadata={"page_content": doc.page_content, **doc.metadata},
+                hash=hashlib.sha256(
+                    (doc.page_content + str(doc.metadata)).encode()
+                ).hexdigest(),
+            )
+            db.add(db_chunk)
+
+            if i > 0 and i % 100 == 0:
+                db.commit()
+
         db.commit()
         logger.info(
-            f"Task {task_id}: Stored {len(work_docs)} chunk records "
+            f"Task {task_id}: Stored {len(work_docs) + len(page_docs)} chunk records "
             f"in {time.monotonic() - t0:.1f}s"
         )
 

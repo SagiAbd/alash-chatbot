@@ -2,7 +2,17 @@
 
 ## [2026-04-04]
 
+### Added
+- First-class work/page retrieval metadata on `DocumentChunk` plus a migration to support raw page search and page-window inspection
+
 ### Improved
+- Improved author-name retrieval tolerance by scoring common Kazakh/Russian surname suffix variants such as `-ов/-ев/-ұлы/-қызы`
+- Tightened the agent prompt for broad author-study questions so it must inspect author/books/works before making synthesis claims instead of extrapolating from a single search result
+- Fixed the document chunks modal endpoint to avoid MySQL sort-buffer exhaustion by fetching work chunks without DB-side sorting and ordering them in Python with a legacy fallback
+- Made the database transcript the only durable chat-memory source by removing LangGraph checkpoint resume from chat turns and rebuilding history from persisted messages
+- Added a non-vector retrieval layer for the agent with normalized keyword search over authors, books, works, plus filtered raw-page search for verification
+- Stored cleaned raw OCR pages alongside work chunks during document processing so the agent can verify TOC-derived structure against source pages
+- Kept the document chunk API compatible with the existing viewer by filtering page chunks out of the current document works endpoint
 - Refined the chat page UX with smarter auto-scroll behavior, auto-resizing input, simplified assistant message rendering, and smoother loading/message animations
 - Upgraded chat markdown rendering with raw HTML support, bracketed URL normalization, styled tables/code/quotes/lists, and token-by-token streaming output animation
 - Matched the chat UI more closely to the RGIS frontend by restoring the larger answer text size and preventing loading dots from overlapping with the streaming assistant bubble

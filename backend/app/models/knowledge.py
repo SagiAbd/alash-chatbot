@@ -1,20 +1,22 @@
+from datetime import datetime
+
+import sqlalchemy as sa
 from sqlalchemy import (
+    JSON,
+    TIMESTAMP,
+    BigInteger,
     Column,
+    DateTime,
+    ForeignKey,
     Integer,
     String,
-    ForeignKey,
     Text,
-    DateTime,
-    JSON,
-    BigInteger,
-    TIMESTAMP,
     text,
 )
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import relationship
+
 from app.models.base import Base, TimestampMixin
-from datetime import datetime
-import sqlalchemy as sa
 
 
 class KnowledgeBase(Base, TimestampMixin):
@@ -118,6 +120,11 @@ class DocumentChunk(Base, TimestampMixin):
     kb_id = Column(Integer, ForeignKey("knowledge_bases.id"), nullable=False)
     document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
     file_name = Column(String(255), nullable=False)
+    chunk_type = Column(String(32), nullable=True, index=True)
+    chunk_label = Column(String(512), nullable=True)
+    page_number = Column(Integer, nullable=True, index=True)
+    start_page = Column(Integer, nullable=True)
+    end_page = Column(Integer, nullable=True)
     chunk_metadata = Column(JSON, nullable=True)
     hash = Column(
         String(64), nullable=False, index=True
@@ -127,4 +134,8 @@ class DocumentChunk(Base, TimestampMixin):
     knowledge_base = relationship("KnowledgeBase", back_populates="chunks")
     document = relationship("Document", back_populates="chunks")
 
-    __table_args__ = (sa.Index("idx_kb_file_name", "kb_id", "file_name"),)
+    __table_args__ = (
+        sa.Index("idx_kb_file_name", "kb_id", "file_name"),
+        sa.Index("idx_document_chunk_type", "document_id", "chunk_type"),
+        sa.Index("idx_document_page_number", "document_id", "page_number"),
+    )

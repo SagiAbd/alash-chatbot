@@ -42,10 +42,11 @@ async def generate_response(
     """Generate a streaming response using the LangGraph agent.
 
     Flow per turn:
-      1. Build deterministic tools from DB documents
-      2. LLM decides which tools to call (browse authors/books/works)
-      3. Tools execute DB queries; LLM receives results and responds
-      4. Tokens and step events streamed back to client
+      1. Load the durable chat transcript from the DB
+      2. Build deterministic tools from DB documents
+      3. LLM decides which tools to call (search/browse/read pages or works)
+      4. Tools execute DB queries; LLM receives results and responds
+      5. Tokens and step events streamed back to client
     """
     try:
         pipeline_start = time.perf_counter()
@@ -97,19 +98,23 @@ async def generate_response(
             tool_bound=True,
         )
 
-        # Build chat history from DB messages
+        # Build chat history from the persisted DB transcript only.
         chat_history: List = []
-        for i, msg in enumerate(messages["messages"]):
-            if (
-                i == len(messages["messages"]) - 1
-                and msg["role"] == "user"
-                and msg["content"] == query
-            ):
+        transcript = (
+            db.query(Message)
+            .filter(Message.chat_id == chat_id)
+            .order_by(Message.id.asc())
+            .all()
+        )
+        for msg in transcript:
+            if msg.id == user_message.id:
                 continue
-            if msg["role"] == "user":
-                chat_history.append(HumanMessage(content=msg["content"]))
-            elif msg["role"] == "assistant":
-                content = msg["content"]
+            if msg.role == "user":
+                chat_history.append(HumanMessage(content=msg.content))
+            elif msg.role == "assistant":
+                content = msg.content
+                if not content.strip():
+                    continue
                 # Backward compat: strip old __LLM_RESPONSE__ format
                 if "__LLM_RESPONSE__" in content:
                     content = content.split("__LLM_RESPONSE__")[-1]
@@ -121,7 +126,6 @@ async def generate_response(
         async for item in run_turn(
             question=query,
             chat_history=chat_history,
-            chat_id=chat_id,
             llm_with_tools=llm_with_tools,
             tools=tools,
             turn_log=turn_log,

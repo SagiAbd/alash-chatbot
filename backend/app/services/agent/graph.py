@@ -3,7 +3,6 @@
 Flow:
   START -> agent -> tools (if tool_calls) -> agent -> ... -> END
 
-Compiled with MemorySaver (in-memory checkpointer -- resets on restart).
 Call init_graph() at application startup.
 """
 
@@ -12,7 +11,6 @@ import logging
 from typing import AsyncGenerator, Dict, List
 
 from langchain_core.messages import HumanMessage
-from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
 from app.services.agent.agent import (
@@ -43,13 +41,10 @@ _app = None
 
 
 def init_graph() -> None:
-    """Compile the graph with a MemorySaver checkpointer.
-    Call once during application startup.
-    """
+    """Compile the graph once during application startup."""
     global _app
-    checkpointer = MemorySaver()
-    _app = _workflow.compile(checkpointer=checkpointer)
-    logger.info("LangGraph compiled with MemorySaver checkpointer")
+    _app = _workflow.compile()
+    logger.info("LangGraph compiled without durable checkpoint state")
 
 
 def get_graph_app():
@@ -108,7 +103,6 @@ def _get_message_content(message) -> str:
 async def run_turn(
     question: str,
     chat_history: List,
-    chat_id: int,
     llm_with_tools,
     tools: List,
     turn_log: TurnLog | None = None,
@@ -124,20 +118,11 @@ async def run_turn(
 
     config = {
         "configurable": {
-            "thread_id": str(chat_id),
             "llm_with_tools": llm_with_tools,
             "tools": tools,
         },
         "recursion_limit": 30,
     }
-
-    # Check for existing checkpoint
-    checkpoint_snapshot = await graph_app.aget_state(config)
-    has_checkpoint = bool(
-        checkpoint_snapshot
-        and checkpoint_snapshot.values
-        and checkpoint_snapshot.values.get("messages")
-    )
 
     if turn_log is None:
         turn_log = TurnLog()
@@ -145,22 +130,14 @@ async def run_turn(
     turn_log.add_event(
         "graph.start",
         "LangGraph turn started",
-        checkpoint_resume=has_checkpoint,
         chat_history_messages=len(chat_history),
     )
 
-    if has_checkpoint:
-        initial_state: AgentState = {
-            "messages": [HumanMessage(content=question)],
-            "question": question,
-            "turn_log": turn_log,
-        }
-    else:
-        initial_state: AgentState = {
-            "messages": chat_history + [HumanMessage(content=question)],
-            "question": question,
-            "turn_log": turn_log,
-        }
+    initial_state: AgentState = {
+        "messages": chat_history + [HumanMessage(content=question)],
+        "question": question,
+        "turn_log": turn_log,
+    }
 
     agent_iteration = 0
     streamed_run_ids: set[str] = set()

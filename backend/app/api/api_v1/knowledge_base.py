@@ -186,7 +186,9 @@ async def delete_knowledge_base(
             }
 
         return {
-            "message": "Knowledge base and all associated resources deleted successfully"
+            "message": (
+                "Knowledge base and all associated resources deleted successfully"
+            )
         }
     except Exception as e:
         db.rollback()
@@ -363,7 +365,7 @@ async def process_kb_documents(
 
 
 async def add_processing_tasks_to_queue(task_data, kb_id):
-    """Helper function to add document processing tasks to the queue without blocking the main response."""
+    """Add document processing tasks to the queue without blocking the response."""
     for data in task_data:
         asyncio.create_task(
             asyncio.to_thread(
@@ -645,5 +647,30 @@ async def get_document_chunks(
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    chunks = db.query(DocumentChunk).filter(DocumentChunk.document_id == doc_id).all()
+    chunks = (
+        db.query(DocumentChunk)
+        .filter(
+            DocumentChunk.document_id == doc_id,
+            DocumentChunk.chunk_type == "work",
+        )
+        .all()
+    )
+    if not chunks:
+        chunks = (
+            db.query(DocumentChunk)
+            .filter(
+                DocumentChunk.document_id == doc_id,
+                DocumentChunk.chunk_type.is_(None),
+            )
+            .all()
+        )
+
+    chunks.sort(
+        key=lambda chunk: (
+            chunk.start_page
+            or (chunk.chunk_metadata or {}).get("start_page")
+            or 0,
+            chunk.id,
+        )
+    )
     return [{"id": c.id, "chunk_metadata": c.chunk_metadata} for c in chunks]
