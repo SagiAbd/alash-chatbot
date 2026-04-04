@@ -78,3 +78,36 @@
   @apply leading-[26px];
   @apply text-[#404040];
 }
+
+/* ── Chat message entrance animation ─────────────────────── */
+@keyframes chat-message-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.chat-message-in {
+  animation: chat-message-in 0.3s ease-out both;
+}
+
+/* ── Prose overrides for markdown in chat ─────────────────── */
+.prose p {
+  @apply my-2 leading-relaxed;
+}
+
+.prose > *:first-child {
+  @apply mt-0;
+}
+
+.prose > *:last-child {
+  @apply mb-0;
+}
+
+.prose li > p {
+  @apply my-0;
+}

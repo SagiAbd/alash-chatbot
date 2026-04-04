@@ -1,8 +1,8 @@
 import React, {
-  FC,
   useMemo,
-  useEffect,
   useState,
+  useRef,
+  useEffect,
   ClassAttributes,
 } from "react";
 import { AnchorHTMLAttributes } from "react";
@@ -16,6 +16,7 @@ import { Divider } from "@/components/ui/divider";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
+import rehypeRaw from "rehype-raw";
 import { api } from "@/lib/api";
 import { FileIcon } from "react-file-icon";
 
@@ -39,19 +40,31 @@ interface CitationInfo {
   document: DocumentInfo;
 }
 
-export const Answer: FC<{
+const BRACKETED_URL_RE = /\[(https?:\/\/[^\s\]]+)\]/g;
+
+const normalizeBracketedUrls = (markdown: string): string => {
+  return markdown.replace(BRACKETED_URL_RE, (_match, rawUrl: string) => {
+    return `[${rawUrl}](${rawUrl})`;
+  });
+};
+
+export const Answer = ({
+  markdown,
+  citations = [],
+  isStreaming = false,
+}: {
   markdown: string;
   citations?: Citation[];
-}> = ({ markdown, citations = [] }) => {
+  isStreaming?: boolean;
+}) => {
   const [citationInfoMap, setCitationInfoMap] = useState<
     Record<string, CitationInfo>
   >({});
+  const animatedMarkdown = useStreamingText(markdown, isStreaming);
 
   const processedMarkdown = useMemo(() => {
-    return markdown
-      .replace(/<think>/g, "## 💭 深度思考\n```think")
-      .replace(/<\/think>/g, "```");
-  }, [markdown]);
+    return normalizeBracketedUrls(animatedMarkdown);
+  }, [animatedMarkdown]);
 
   useEffect(() => {
     const fetchCitationInfo = async () => {
@@ -188,16 +201,136 @@ export const Answer: FC<{
   }
 
   return (
-    <div className="prose prose-sm max-w-full">
+    <div className="prose prose-sm max-w-full prose-table:my-3 prose-pre:my-2">
       <Markdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeHighlight]}
+        rehypePlugins={[rehypeRaw, rehypeHighlight]}
         components={{
           a: CitationLink,
+          table: ({ children, ...props }) => (
+            <div className="overflow-x-auto my-3 rounded-lg border border-border">
+              <table className="min-w-full text-sm" {...props}>
+                {children}
+              </table>
+            </div>
+          ),
+          thead: ({ children, ...props }) => (
+            <thead className="bg-muted/70 text-left" {...props}>
+              {children}
+            </thead>
+          ),
+          th: ({ children, ...props }) => (
+            <th
+              className="px-3 py-2 font-semibold text-xs uppercase tracking-wider border-b border-border"
+              {...props}
+            >
+              {children}
+            </th>
+          ),
+          td: ({ children, ...props }) => (
+            <td className="px-3 py-2 border-b border-border/50" {...props}>
+              {children}
+            </td>
+          ),
+          tr: ({ children, ...props }) => (
+            <tr className="even:bg-muted/30 transition-colors" {...props}>
+              {children}
+            </tr>
+          ),
+          blockquote: ({ children, ...props }) => (
+            <blockquote
+              className="border-l-4 border-primary/30 bg-muted/40 rounded-r-lg px-4 py-2 my-3 text-muted-foreground italic"
+              {...props}
+            >
+              {children}
+            </blockquote>
+          ),
+          pre: ({ children, ...props }) => (
+            <pre
+              className="bg-[#1e1e2e] text-[#cdd6f4] rounded-xl p-4 my-3 overflow-x-auto text-sm leading-relaxed"
+              {...props}
+            >
+              {children}
+            </pre>
+          ),
+          code: ({ children, className, ...props }) => {
+            const isInline = !className;
+            if (isInline) {
+              return (
+                <code
+                  className="bg-muted px-1.5 py-0.5 rounded-md text-sm font-mono"
+                  {...props}
+                >
+                  {children}
+                </code>
+              );
+            }
+            return <code className={className} {...props}>{children}</code>;
+          },
+          ul: ({ children, ...props }) => (
+            <ul className="list-disc pl-5 my-2 space-y-1" {...props}>
+              {children}
+            </ul>
+          ),
+          ol: ({ children, ...props }) => (
+            <ol className="list-decimal pl-5 my-2 space-y-1" {...props}>
+              {children}
+            </ol>
+          ),
+          hr: () => <hr className="my-4 border-border" />,
         }}
       >
-        {markdown}
+        {processedMarkdown}
       </Markdown>
     </div>
   );
 };
+
+function useStreamingText(text: string, isStreaming: boolean): string {
+  const [displayed, setDisplayed] = useState(text);
+  const displayedLenRef = useRef(text.length);
+  const targetRef = useRef(text);
+  const rafRef = useRef<number>(0);
+  const prevTimeRef = useRef(0);
+
+  targetRef.current = text;
+
+  useEffect(() => {
+    if (!isStreaming) {
+      cancelAnimationFrame(rafRef.current);
+      displayedLenRef.current = text.length;
+      setDisplayed(text);
+      prevTimeRef.current = 0;
+      return;
+    }
+
+    const tick = (now: number) => {
+      if (!prevTimeRef.current) prevTimeRef.current = now;
+      const dt = now - prevTimeRef.current;
+      prevTimeRef.current = now;
+
+      const currentLen = displayedLenRef.current;
+      const target = targetRef.current;
+      const gap = target.length - currentLen;
+
+      if (gap > 0) {
+        // Adaptive rate: faster when buffer is large to avoid falling behind
+        const rate = gap > 200 ? 0.5 : gap > 50 ? 0.15 : 0.06;
+        const chars = Math.max(1, Math.round(dt * rate));
+        const newLen = Math.min(target.length, currentLen + chars);
+        displayedLenRef.current = newLen;
+        setDisplayed(target.slice(0, newLen));
+      }
+
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      prevTimeRef.current = 0;
+    };
+  }, [isStreaming]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return displayed;
+}

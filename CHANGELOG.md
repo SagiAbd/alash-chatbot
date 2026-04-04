@@ -1,5 +1,13 @@
 # Changelog
 
+## [2026-04-04]
+
+### Improved
+- Refined the chat page UX with smarter auto-scroll behavior, auto-resizing input, simplified assistant message rendering, and smoother loading/message animations
+- Upgraded chat markdown rendering with raw HTML support, bracketed URL normalization, styled tables/code/quotes/lists, and token-by-token streaming output animation
+- Expanded `AGENTS.md` with `TODO.md` workflow rules, iterative delivery guidance, and a requirement to suggest a commit message after changes
+- Aligned `TODO.md` section naming with the documented plain-list workflow
+
 ## [2026-04-01]
 
 ### Improved

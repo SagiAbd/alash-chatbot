@@ -4,6 +4,7 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 
 ### Todo
 
+- copy rgis ai assistant frontend  
 - chatbot is lazy on tool calling.  
 - agent is too wordy, work with system prompt  
 - animations and agent vis are bad. add support for advanced markdown, e.g tables  
@@ -13,7 +14,7 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 ### In Progress
 
 
-### Done ✓
+### Done
 
 - agentic chat with deterministic document retrieval tools  
 - agent thinking steps UI with animations  
@@ -23,4 +24,3 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 - fix event loop blocking during document processing  
 - remove vector store from processing and retrieval paths  
 - Clean ocr.json from hallucinations  
-

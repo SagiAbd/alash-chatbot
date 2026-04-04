@@ -131,6 +131,14 @@ uv run ruff check . --fix  # auto-fix
 - Only modify code directly related to the task — no opportunistic cleanup
 - Validate only at system boundaries (user input, external APIs)
 - No error handling for impossible scenarios — trust internal code and framework guarantees
+- Build iteratively: minimal working implementation first
+
+## Task Tracking
+
+- Track active work in [`TODO.md`](./TODO.md) and keep statuses updated as work progresses
+- `TODO.md` should keep the `Todo`, `In Progress`, and `Done` sections as plain dash-prefixed lists
+- When work starts, move the item from `Todo` to `In Progress`
+- When work is finished, move the item to `Done`
 
 ## Testing
 
@@ -156,3 +164,5 @@ Commit format: `type: short description` (present tense, no trailing period, no 
 Types: `feat`, `fix`, `improve`, `refactor`, `test`, `docs`, `perf`
 
 After every meaningful change: update [CHANGELOG.md](CHANGELOG.md) with a dated `## [YYYY-MM-DD]` entry.
+
+Always suggest the appropriate git commit message after changes.

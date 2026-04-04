@@ -1,16 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback, KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useChat } from "ai/react";
 import { Send, User } from "lucide-react";
-import { AnimatePresence, motion } from "framer-motion";
 import DashboardLayout from "@/components/layout/dashboard-layout";
 import { api, ApiError } from "@/lib/api";
 import { useToast } from "@/components/ui/use-toast";
 import { Answer } from "@/components/chat/answer";
-import { AgentSteps, AgentStep } from "@/components/chat/agent-steps";
-import { ThinkingBubble } from "@/components/chat/thinking-bubble";
 
 interface ChatMessage {
   id: number;
@@ -25,50 +22,28 @@ interface Chat {
   messages: ChatMessage[];
 }
 
-function parseAssistantMessage(content: string, isStreaming: boolean) {
-  const blocks: { type: "think" | "text"; content: string; isStreaming?: boolean }[] = [];
-  let i = 0;
-  while (i < content.length) {
-    const thinkStart = content.indexOf("<think>", i);
-    if (thinkStart === -1) {
-      const rest = content.substring(i);
-      if (rest.trim()) blocks.push({ type: "text", content: rest });
-      break;
-    }
-    
-    if (thinkStart > i) {
-      const textBefore = content.substring(i, thinkStart);
-      if (textBefore.trim()) blocks.push({ type: "text", content: textBefore });
-    }
-    
-    const thinkEndToken = "</think>";
-    const thinkEnd = content.indexOf(thinkEndToken, thinkStart);
-    
-    if (thinkEnd === -1) {
-      const thinkContent = content.substring(thinkStart + "<think>".length);
-      blocks.push({ type: "think", content: thinkContent, isStreaming });
-      break;
-    } else {
-      const thinkContent = content.substring(thinkStart + "<think>".length, thinkEnd);
-      blocks.push({ type: "think", content: thinkContent, isStreaming: false });
-      i = thinkEnd + thinkEndToken.length;
-    }
-  }
-  return blocks;
+/** Strip <think>…</think> blocks (including unclosed ones during streaming). */
+function stripThinkBlocks(content: string): string {
+  return content
+    .replace(/<think>[\s\S]*?<\/think>/g, "")
+    .replace(/<think>[\s\S]*$/, "")
+    .trim();
 }
 
 export default function ChatPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const shouldAutoScrollRef = useRef(true);
+  const prevScrollTopRef = useRef(0);
+  const lastUserMsgRef = useRef<HTMLDivElement>(null);
+  const justSubmittedRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { toast } = useToast();
   const [isInitialLoad, setIsInitialLoad] = useState(true);
-  const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
-  const [isStreamingAnswer, setIsStreamingAnswer] = useState(false);
 
   const {
     messages,
-    data,
     input,
     handleInputChange,
     handleSubmit: chatHandleSubmit,
@@ -83,42 +58,14 @@ export default function ChatPage({ params }: { params: { id: string } }) {
           : ""
       }`,
     },
-    onFinish: () => {
-      setIsStreamingAnswer(false);
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to get a response. Please try again.",
+        variant: "destructive",
+      });
     },
   });
-
-  // Parse step events from data stream annotations
-  useEffect(() => {
-    if (!data || data.length === 0) return;
-
-    const steps: AgentStep[] = [];
-    for (const item of data) {
-      if (
-        item &&
-        typeof item === "object" &&
-        "type" in item &&
-        (item as any).type === "step"
-      ) {
-        steps.push(item as unknown as AgentStep);
-      }
-    }
-    if (steps.length > 0) {
-      setAgentSteps(steps);
-    }
-  }, [data]);
-
-  // Detect when answer tokens start streaming
-  useEffect(() => {
-    if (!isLoading) {
-      setIsStreamingAnswer(false);
-      return;
-    }
-    const lastMsg = messages[messages.length - 1];
-    if (lastMsg?.role === "assistant" && lastMsg.content.length > 0) {
-      setIsStreamingAnswer(true);
-    }
-  }, [messages, isLoading]);
 
   useEffect(() => {
     if (isInitialLoad) {
@@ -127,11 +74,70 @@ export default function ChatPage({ params }: { params: { id: string } }) {
     }
   }, [isInitialLoad]);
 
-  useEffect(() => {
-    if (!isInitialLoad) {
-      scrollToBottom();
+  // ── Smart scroll system ──────────────────────────────────────
+
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const scrollTop = el.scrollTop;
+    const prev = prevScrollTopRef.current;
+    prevScrollTopRef.current = scrollTop;
+    if (scrollTop < prev) {
+      shouldAutoScrollRef.current = false;
+      return;
     }
-  }, [messages, isInitialLoad, agentSteps]);
+    if (el.scrollHeight - scrollTop - el.clientHeight < 80) {
+      shouldAutoScrollRef.current = true;
+    }
+  }, []);
+
+  // Scroll user message to top on submit
+  useEffect(() => {
+    if (isInitialLoad) return;
+    if (
+      justSubmittedRef.current &&
+      messages.length > 0 &&
+      messages[messages.length - 1].role === "user"
+    ) {
+      justSubmittedRef.current = false;
+      shouldAutoScrollRef.current = true;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const container = scrollContainerRef.current;
+          const userMsg = lastUserMsgRef.current;
+          if (container && userMsg) {
+            const containerTop = container.getBoundingClientRect().top;
+            const userTop = userMsg.getBoundingClientRect().top;
+            const targetTop =
+              container.scrollTop + (userTop - containerTop) - 24;
+            container.scrollTo({
+              top: Math.max(0, targetTop),
+              behavior: "auto",
+            });
+          }
+        });
+      });
+    }
+  }, [messages, isInitialLoad]);
+
+  // Smooth auto-scroll during streaming via rAF — no jitter
+  useEffect(() => {
+    if (!isLoading) return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    let raf: number;
+    const tick = () => {
+      if (shouldAutoScrollRef.current) {
+        const maxScrollTop = container.scrollHeight - container.clientHeight;
+        if (Math.abs(maxScrollTop - container.scrollTop) > 1) {
+          container.scrollTop = maxScrollTop;
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [isLoading]);
 
   const fetchChat = async () => {
     try {
@@ -161,50 +167,48 @@ export default function ChatPage({ params }: { params: { id: string } }) {
     }
   };
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  const resizeTextarea = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   };
 
-  const handleSubmit = useCallback(
-    (e: React.FormEvent) => {
-      setIsStreamingAnswer(false);
-      chatHandleSubmit(e);
-    },
-    [chatHandleSubmit]
-  );
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        if (input.trim() && !isLoading) {
-          handleSubmit(e as unknown as React.FormEvent);
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      if (!isLoading && input.trim()) {
+        justSubmittedRef.current = true;
+        shouldAutoScrollRef.current = true;
+        chatHandleSubmit(e as any);
+        if (textareaRef.current) {
+          textareaRef.current.style.height = "auto";
         }
       }
-    },
-    [input, isLoading, handleSubmit]
-  );
-
-  // Auto-resize textarea
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 160)}px`;
     }
-  }, [input]);
+  };
 
-  // Check if we should show agent steps block (separate from answer)
-  const showAgentSteps = isLoading && agentSteps.length > 0;
+  // Find last user message index for ref assignment
+  const lastUserMsgIdx = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user") return i;
+    }
+    return -1;
+  }, [messages]);
+
   const showLoadingDots =
     isLoading &&
-    agentSteps.length === 0 &&
     messages[messages.length - 1]?.role !== "assistant";
 
   return (
     <DashboardLayout>
       <div className="flex flex-col h-[calc(100vh-5rem)] relative">
         {/* Messages area */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 pb-[140px]">
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto px-4 py-6 space-y-6 pb-[200px]"
+        >
           {/* Empty state */}
           {messages.length === 0 && !isLoading && (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
@@ -221,157 +225,104 @@ export default function ChatPage({ params }: { params: { id: string } }) {
           )}
 
           {/* Messages */}
-          <AnimatePresence mode="popLayout">
-            {messages.map((message) => {
-              if (message.role === "user") {
-                return (
-                  <motion.div
-                    key={message.id}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="flex justify-end items-start gap-3"
-                  >
-                    <div className="max-w-[85%] min-w-0">
-                      <div className="rounded-2xl rounded-tr-sm bg-primary text-primary-foreground px-4 py-3 shadow-sm">
-                        <div className="prose prose-sm prose-invert max-w-full">
-                          <p className="whitespace-pre-wrap m-0">
-                            {message.content}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="w-8 h-8 flex-shrink-0 rounded-full bg-primary flex items-center justify-center">
-                      <User className="h-4 w-4 text-primary-foreground" />
-                    </div>
-                  </motion.div>
-                );
-              }
+          {messages.map((message, index) => {
+            if (message.role === "user") {
+              return (
+                <div
+                  key={message.id}
+                  ref={index === lastUserMsgIdx ? lastUserMsgRef : undefined}
+                  className="flex items-start justify-end gap-3 chat-message-in"
+                >
+                  <div className="max-w-[95%] lg:max-w-[85%] rounded-2xl bg-primary text-primary-foreground px-4 py-3 shadow-sm whitespace-pre-wrap">
+                    {message.content}
+                  </div>
+                  <div className="h-8 w-8 rounded-full bg-primary/90 flex items-center justify-center shrink-0 mt-1 shadow-sm">
+                    <User className="h-4 w-4 text-primary-foreground" />
+                  </div>
+                </div>
+              );
+            }
 
-              if (message.role === "assistant") {
-                const isMsgStreaming =
-                  isLoading &&
-                  message.id === messages[messages.length - 1]?.id &&
-                  isStreamingAnswer;
-                const blocks = parseAssistantMessage(message.content, isMsgStreaming);
+            if (message.role === "assistant") {
+              const isMsgStreaming =
+                isLoading &&
+                message.id === messages[messages.length - 1]?.id;
+              const cleaned = stripThinkBlocks(message.content);
 
-                return (
-                  <motion.div
-                    key={message.id}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="flex justify-start items-start gap-3"
-                  >
-                    <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center">
-                      <img
-                        src="/logo.png"
-                        className="h-8 w-8 rounded-full"
-                        alt="logo"
-                      />
-                    </div>
-                    <div className="max-w-[85%] min-w-0 flex flex-col gap-2">
-                      {blocks.length === 0 ? (
-                        <div className="rounded-2xl rounded-tl-sm bg-muted/50 px-4 py-3 shadow-sm">
-                          <Answer markdown="" />
-                        </div>
-                      ) : (
-                        blocks.map((block, idx) => {
-                          if (block.type === "think") {
-                            return (
-                              <ThinkingBubble
-                                key={idx}
-                                content={block.content}
-                                isStreaming={block.isStreaming || false}
-                              />
-                            );
-                          }
-                          return (
-                            <div
-                              key={idx}
-                              className="rounded-2xl rounded-tl-sm bg-muted/50 px-4 py-3 shadow-sm"
-                            >
-                              <Answer markdown={block.content} />
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </motion.div>
-                );
-              }
+              return (
+                <div
+                  key={message.id}
+                  className="flex items-start gap-3 chat-message-in"
+                >
+                  <img
+                    src="/logo.png"
+                    className="h-8 w-8 rounded-full shrink-0 mt-1 shadow-sm"
+                    alt="logo"
+                  />
+                  <div className="max-w-[95%] lg:max-w-[85%] rounded-2xl bg-muted/60 px-4 py-3 shadow-sm">
+                    <Answer
+                      markdown={cleaned}
+                      isStreaming={isMsgStreaming}
+                    />
+                  </div>
+                </div>
+              );
+            }
 
-              return null;
-            })}
-          </AnimatePresence>
+            return null;
+          })}
 
-          {/* Agent reasoning & tool calls — separate block below messages */}
-          {showAgentSteps && (
-            <motion.div
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.2 }}
-              className="flex justify-start items-start gap-3"
-            >
-              <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center">
-                <img
-                  src="/logo.png"
-                  className="h-8 w-8 rounded-full"
-                  alt="logo"
-                />
-              </div>
-              <div className="max-w-[85%] min-w-0">
-                <AgentSteps
-                  steps={agentSteps}
-                  isStreaming={isStreamingAnswer}
-                />
-              </div>
-            </motion.div>
-          )}
-
-          {/* Loading dots when no steps yet */}
+          {/* Loading dots */}
           {showLoadingDots && (
-            <div className="flex justify-start items-start gap-3">
-              <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center">
-                <img
-                  src="/logo.png"
-                  className="h-8 w-8 rounded-full opacity-50"
-                  alt="logo"
-                />
-              </div>
-              <div className="rounded-2xl rounded-tl-sm bg-muted/50 px-4 py-3 shadow-sm">
-                <div className="flex items-center gap-1">
-                  <div className="w-2 h-2 rounded-full bg-primary/60 animate-bounce" />
-                  <div className="w-2 h-2 rounded-full bg-primary/60 animate-bounce [animation-delay:0.2s]" />
-                  <div className="w-2 h-2 rounded-full bg-primary/60 animate-bounce [animation-delay:0.4s]" />
+            <div className="flex items-start gap-3 chat-message-in">
+              <img
+                src="/logo.png"
+                className="h-8 w-8 rounded-full shrink-0 mt-1 shadow-sm"
+                alt="logo"
+              />
+              <div className="rounded-2xl bg-muted/60 px-5 py-4 shadow-sm">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-foreground/40 animate-bounce" />
+                  <div className="w-2 h-2 rounded-full bg-foreground/40 animate-bounce [animation-delay:0.15s]" />
+                  <div className="w-2 h-2 rounded-full bg-foreground/40 animate-bounce [animation-delay:0.3s]" />
                 </div>
               </div>
             </div>
           )}
 
-          {/* Scroll anchor with extra padding so last line is never cut off */}
-          <div ref={messagesEndRef} className="h-4" />
+          <div ref={messagesEndRef} />
         </div>
 
         {/* Input area */}
-        <div className="border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 absolute bottom-0 left-0 right-0">
+        <div className="absolute bottom-0 left-0 right-0 border-t bg-background/95 backdrop-blur-sm p-3 sm:p-4">
           <form
-            onSubmit={handleSubmit}
-            className="flex items-end gap-3 p-4 max-w-4xl mx-auto"
+            onSubmit={(e) => {
+              justSubmittedRef.current = true;
+              shouldAutoScrollRef.current = true;
+              chatHandleSubmit(e);
+              if (textareaRef.current) textareaRef.current.style.height = "auto";
+            }}
+            className="mx-auto flex items-end gap-3 max-w-4xl"
           >
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={handleInputChange}
-              onKeyDown={handleKeyDown}
-              placeholder="Сұрағыңызды жазыңыз..."
-              rows={1}
-              className="flex-1 min-w-0 min-h-[44px] max-h-[160px] resize-none rounded-xl border border-input bg-background px-4 py-2.5 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            />
+            <div className="flex-1 min-w-0 rounded-xl border border-input bg-background shadow-sm focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-1 transition-shadow">
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(e) => {
+                  handleInputChange(e);
+                  resizeTextarea();
+                }}
+                onKeyDown={handleKeyDown}
+                placeholder="Сұрағыңызды жазыңыз..."
+                rows={1}
+                className="min-h-[44px] w-full resize-none bg-transparent px-4 py-[11px] text-sm leading-[20px] placeholder:text-muted-foreground focus:outline-none"
+                style={{ maxHeight: 160 }}
+              />
+            </div>
             <button
               type="submit"
               disabled={isLoading || !input.trim()}
-              className="inline-flex items-center justify-center rounded-xl text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-11 w-11 flex-shrink-0"
+              className="inline-flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm transition-all hover:scale-105 hover:bg-primary/90 active:scale-95 disabled:pointer-events-none disabled:opacity-40 disabled:hover:scale-100"
             >
               <Send className="h-4 w-4" />
             </button>
