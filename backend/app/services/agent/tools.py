@@ -550,8 +550,11 @@ def create_tools(db: Session, knowledge_base_ids: List[int]) -> list:
     ) -> str:
         """Read the stored work-level text content of a specific work.
 
-        Use this for summaries and broad reading, but verify quotes, dates,
-        disputed details, or page-specific claims with raw pages when needed.
+        Use this for summaries and broad reading, but remember this text is
+        built from TOC-derived work boundaries with a small page padding. That
+        means adjacent pages can introduce irrelevant or neighboring-work
+        context. Verify quotes, dates, disputed details, page-specific claims,
+        and unclear attribution with raw pages when needed.
 
         Args:
             work_number: The work number from search or browsing tools.

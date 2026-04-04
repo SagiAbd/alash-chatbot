@@ -5,7 +5,6 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 ### Todo
 
 - fix bugs in kb upload  
-- improve llm answer style to docs style and kazakhi  
 - add agent steps calling animation  
 - add glossary tool (fuzzy search over terms database)  
 
@@ -15,6 +14,8 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 
 ### Done
 
+- improve llm answer style to docs style and kazakhi  
+- warn agent that padded work content may include adjacent context  
 - keep failed document-processing status visible after reload  
 - fix page extraction shadowing regression in document loading  
 - chatbot is lazy on tool calling.  
@@ -43,4 +44,3 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 - fix event loop blocking during document processing  
 - remove vector store from processing and retrieval paths  
 - Clean ocr.json from hallucinations  
-
