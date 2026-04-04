@@ -213,6 +213,9 @@ def create_tools(db: Session, knowledge_base_ids: List[int]) -> list:
 
         Returns the book's summary, author, and a numbered list of all works
         (poems, articles, chapters, etc.) contained in the book.
+        Use this to locate the right work inside a book.
+        Do not treat this output as enough for questions about what a specific
+        work is about; for that, read the work text itself.
 
         Args:
             book_number: The book number from get_authors_and_books results.
@@ -245,6 +248,8 @@ def create_tools(db: Session, knowledge_base_ids: List[int]) -> list:
         """Get all books and works by a specific author.
 
         Returns summaries of each book and lists of works for the given author.
+        Use this when the user names an author or when you need to identify
+        which work by the author is relevant before reading the text.
 
         Args:
             author_number: The author number from get_authors_and_books results.
@@ -279,6 +284,11 @@ def create_tools(db: Session, knowledge_base_ids: List[int]) -> list:
 
         If the work is longer than ~20 pages, only a segment is returned.
         Call again with a higher page_offset to read the next segment.
+        This is the required tool for questions like:
+        "не туралы", "мазмұны қандай", "негізгі ойы қандай",
+        "қысқаша айтып бер", "what is it about", or requests for evidence.
+        If a user asks about a named work, you should normally call this tool
+        after locating that work instead of answering from book metadata alone.
 
         Args:
             work_number: The work number from get_book_details results.
@@ -321,13 +331,7 @@ def create_tools(db: Session, knowledge_base_ids: List[int]) -> list:
         if total_segments > 1:
             segment_info = f"\n[Сегмент {page_offset + 1}/{total_segments}. "
             if end < len(content):
-                next_offset = page_offset + 1
-                segment_info += (
-                    f"Келесі сегментті оқу үшін: "
-                    f"get_work_content("
-                    f"work_number={work_number}, "
-                    f"page_offset={next_offset})]"
-                )
+                segment_info += "Жалғасы бар, келесі сегментті де оқуға болады.]"
             else:
                 segment_info += "Бұл соңғы сегмент.]"
 
