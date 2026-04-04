@@ -35,6 +35,7 @@ class Settings(BaseSettings):
 
     # Chat Provider settings
     CHAT_PROVIDER: str = os.getenv("CHAT_PROVIDER", "openai")
+    AGENT_VERBOSE: bool = os.getenv("AGENT_VERBOSE", "false").lower() == "true"
 
     # Embeddings settings
     EMBEDDINGS_PROVIDER: str = os.getenv("EMBEDDINGS_PROVIDER", "openai")

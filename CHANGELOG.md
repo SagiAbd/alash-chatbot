@@ -6,6 +6,14 @@
 - First-class work/page retrieval metadata on `DocumentChunk` plus a migration to support raw page search and page-window inspection
 
 ### Improved
+- Added an `AGENT_VERBOSE` switch that turns on LangChain verbose mode and logs the exact final message payload plus raw model response for each agent LLM call
+- Made catalog search results include explicit internal navigation IDs for authors/books/works so the agent can chain follow-up tool calls without inventing the wrong numbers
+- Added a prompt rule requiring the agent to reuse internal IDs exactly as returned by search tools instead of guessing new ones
+- Improved broad author-study handling so the agent is pushed to identify the author first, inspect author/work coverage more deeply, and avoid claiming multi-source research from a single catalog line
+- Adjusted catalog-search ranking and labels so short author-like queries prefer author matches over work-title matches and expose the match type more clearly to the model
+- Added a system-prompt rule to normalize Alash figure names in user-facing answers to `ұлы` / `қызы` forms instead of Russified `-ов/-ев/-ова/-ева` variants when possible
+- Restructured the agent system prompt to favor deeper default research behavior, broader source gathering, multi-document comparison, and more comprehensive answers
+- Increased the LangGraph recursion budget from 30 to 50 so research-heavy tool-calling turns can run longer before stopping
 - Improved author-name retrieval tolerance by scoring common Kazakh/Russian surname suffix variants such as `-ов/-ев/-ұлы/-қызы`
 - Tightened the agent prompt for broad author-study questions so it must inspect author/books/works before making synthesis claims instead of extrapolating from a single search result
 - Fixed the document chunks modal endpoint to avoid MySQL sort-buffer exhaustion by fetching work chunks without DB-side sorting and ordering them in Python with a legacy fallback

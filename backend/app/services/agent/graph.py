@@ -121,7 +121,7 @@ async def run_turn(
             "llm_with_tools": llm_with_tools,
             "tools": tools,
         },
-        "recursion_limit": 30,
+        "recursion_limit": 50,
     }
 
     if turn_log is None:

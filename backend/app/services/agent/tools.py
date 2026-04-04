@@ -113,6 +113,12 @@ def _token_variants(token: str) -> set[str]:
     return {variant for variant in variants if len(variant) > 1}
 
 
+def _is_short_author_like_query(query: str) -> bool:
+    """Detect short queries that are likely intended as a person name."""
+    tokens = _tokenize(query)
+    return 0 < len(tokens) <= 2
+
+
 def _score_match(
     query: str,
     primary_fields: List[str],
@@ -396,12 +402,22 @@ def create_tools(db: Session, knowledge_base_ids: List[int]) -> list:
             limit: Maximum number of ranked matches to return.
         """
         limit = _clamp_limit(limit)
-        results: List[tuple[int, str]] = []
+        author_like_query = _is_short_author_like_query(query)
+        results: List[tuple[int, int, str]] = []
 
         for author in index.authors.values():
             score = _score_match(query, [author.name])
             if score > 0:
-                results.append((score, f"Автор #{author.author_num}: {author.name}"))
+                if author_like_query:
+                    score += 8
+                results.append(
+                    (
+                        score,
+                        0,
+                        f"Автор сәйкестігі: {author.name} "
+                        f"[internal: author_number={author.author_num}]",
+                    )
+                )
 
         for book in index.books.values():
             score = _score_match(
@@ -414,8 +430,10 @@ def create_tools(db: Session, knowledge_base_ids: List[int]) -> list:
                 results.append(
                     (
                         score,
-                        f'Кітап #{book.document_id}: "{book.title}" '
-                        f"(автор: {book.author}{year_str})",
+                        1,
+                        f'Кітап сәйкестігі: "{book.title}" '
+                        f"(автор: {book.author}{year_str}) "
+                        f"[internal: book_number={book.document_id}]",
                     )
                 )
 
@@ -433,9 +451,12 @@ def create_tools(db: Session, knowledge_base_ids: List[int]) -> list:
                 results.append(
                     (
                         score,
-                        f'Шығарма #{work.work_num}: "{work.title}" | '
-                        f'Кітап #{book.document_id}: "{book.title}" | '
-                        f"Автор: {book.author}{page_range}",
+                        2,
+                        f'Шығарма сәйкестігі: "{work.title}" | '
+                        f'Кітап: "{book.title}" | '
+                        f"Автор: {book.author}{page_range} "
+                        f"[internal: work_number={work.work_num}, "
+                        f"book_number={book.document_id}]",
                     )
                 )
 
@@ -443,8 +464,8 @@ def create_tools(db: Session, knowledge_base_ids: List[int]) -> list:
             return f'Сұраныс бойынша сәйкестік табылмады: "{query}".'
 
         lines = [f'Сұраныс: "{query}"', "", "Үздік сәйкестіктер:"]
-        for rank, (_, line) in enumerate(
-            sorted(results, key=lambda item: (-item[0], item[1]))[:limit],
+        for rank, (_, _, line) in enumerate(
+            sorted(results, key=lambda item: (-item[0], item[1], item[2]))[:limit],
             start=1,
         ):
             lines.append(f"{rank}. {line}")

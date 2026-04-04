@@ -6,19 +6,25 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 
 - add agent steps calling animation  
 - chatbot is lazy on tool calling.  
-- agent is too wordy, work with system prompt  
-- animations and agent vis are bad. add support for advanced markdown, e.g tables  
-- after reload the chat page, it errors with task canceled  
 - add glossary tool (fuzzy search over terms database)  
 
 ### In Progress
 
+- enforce deeper work-level reading before broad author-study answers
 
 ### Done
 
-- improve author-name fuzzy matching and force evidence-first author study answers
-- fix document chunk modal query causing MySQL sort-memory errors
-- redesign chat state to use DB transcript only and add non-vector search + raw page verification
+- add AGENT_VERBOSE switch for full prompt logging
+- prevent wrong internal id guessing after catalog search
+- make author-study answers use author-first retrieval and deeper work inspection
+- normalize alash figure naming in answers to ұлы/қызы forms
+- restructure system prompt for deeper, more comprehensive research behavior
+- after reload the chat page, it errors with task canceled  
+- animations and agent vis are bad. add support for advanced markdown, e.g tables  
+- agent is too wordy, work with system prompt  
+- improve author-name fuzzy matching and force evidence-first author study answers  
+- fix document chunk modal query causing MySQL sort-memory errors  
+- redesign chat state to use DB transcript only and add non-vector search + raw page verification  
 - adapt rgis chat UI to our backend by hiding think tokens and restoring incremental token streaming  
 - match think token rendering with rgis chat behavior  
 - fix chat streaming and thinking dots behavior to match rgis expectations  
