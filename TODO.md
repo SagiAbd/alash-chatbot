@@ -4,16 +4,17 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 
 ### Todo
 
-- fix bugs in kb upload  
 - add agent steps calling animation  
 - add glossary tool (fuzzy search over terms database)  
 
 ### In Progress
 
 - enforce deeper work-level reading before broad author-study answers  
+- fix bugs in kb upload  
 
 ### Done
 
+- add knowledge base export/import round-trip as JSON  
 - improve llm answer style to docs style and kazakhi  
 - warn agent that padded work content may include adjacent context  
 - keep failed document-processing status visible after reload  

@@ -1,7 +1,12 @@
 import asyncio
+import base64
+import binascii
 import hashlib
+import json
 import logging
+import re
 from datetime import datetime, timedelta
+from io import BytesIO
 from typing import Any, List
 
 from fastapi import (
@@ -12,7 +17,9 @@ from fastapi import (
     Query,
     UploadFile,
 )
+from fastapi.responses import JSONResponse
 from minio.error import MinioException
+from pydantic import ValidationError
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
@@ -30,6 +37,10 @@ from app.models.user import User
 from app.schemas.knowledge import (
     DocumentResponse,
     KnowledgeBaseCreate,
+    KnowledgeBaseExportChunk,
+    KnowledgeBaseExportDocument,
+    KnowledgeBaseExportMetadata,
+    KnowledgeBaseExportPayload,
     KnowledgeBaseResponse,
     KnowledgeBaseUpdate,
 )
@@ -38,6 +49,158 @@ from app.services.document_processor import process_document_background
 router = APIRouter()
 
 logger = logging.getLogger(__name__)
+
+
+def _get_knowledge_base_for_user(
+    db: Session, kb_id: int, user_id: int
+) -> KnowledgeBase | None:
+    """Return a knowledge base owned by the given user."""
+    return (
+        db.query(KnowledgeBase)
+        .filter(KnowledgeBase.id == kb_id, KnowledgeBase.user_id == user_id)
+        .first()
+    )
+
+
+def _read_minio_object_bytes(object_name: str) -> bytes:
+    """Read a MinIO object fully into memory."""
+    response = None
+    try:
+        minio_client = get_minio_client()
+        response = minio_client.get_object(
+            bucket_name=settings.MINIO_BUCKET_NAME,
+            object_name=object_name,
+        )
+        return response.read()
+    finally:
+        if response is not None:
+            response.close()
+            response.release_conn()
+
+
+def _build_imported_chunk_metadata(
+    metadata: dict[str, Any], kb_id: int, document_id: int, chunk_id: str
+) -> dict[str, Any]:
+    """Repoint imported chunk metadata to the new KB/document IDs."""
+    updated_metadata = dict(metadata)
+    updated_metadata["kb_id"] = kb_id
+    updated_metadata["document_id"] = document_id
+    updated_metadata["chunk_id"] = chunk_id
+    return updated_metadata
+
+
+def _build_imported_chunk_id(kb_id: int, document_id: int, original_id: str) -> str:
+    """Create a deterministic chunk ID for an imported chunk."""
+    return hashlib.sha256(
+        f"import:{kb_id}:{document_id}:{original_id}".encode("utf-8")
+    ).hexdigest()
+
+
+def _build_chunk_hash(metadata: dict[str, Any]) -> str:
+    """Build the stored hash for a chunk from its content and metadata."""
+    page_content = str(metadata.get("page_content") or "")
+    serialized_metadata = json.dumps(
+        metadata, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    return hashlib.sha256(
+        f"{page_content}{serialized_metadata}".encode("utf-8")
+    ).hexdigest()
+
+
+def _sanitize_export_file_name(name: str, kb_id: int) -> str:
+    """Convert a KB name into a download-safe JSON filename."""
+    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", name.strip()).strip("._")
+    if not sanitized:
+        sanitized = f"knowledge-base-{kb_id}"
+    return f"{sanitized}.json"
+
+
+def _cleanup_imported_objects(object_names: list[str]) -> None:
+    """Delete MinIO objects created during a failed import."""
+    for object_name in object_names:
+        try:
+            minio_client = get_minio_client()
+            minio_client.remove_object(settings.MINIO_BUCKET_NAME, object_name)
+        except Exception:
+            logger.warning("Failed to clean up imported object %s", object_name)
+
+
+def _build_knowledge_base_export_payload(
+    kb: KnowledgeBase,
+) -> KnowledgeBaseExportPayload:
+    """Build a portable JSON export payload for a knowledge base."""
+    documents = sorted(
+        kb.documents,
+        key=lambda document: (document.created_at, document.id),
+    )
+    export_documents: list[KnowledgeBaseExportDocument] = []
+
+    for document in documents:
+        try:
+            source_bytes = _read_minio_object_bytes(document.file_path)
+        except Exception as exc:
+            logger.error(
+                "Failed to read source file for KB %s document %s: %s",
+                kb.id,
+                document.id,
+                exc,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    f"Failed to read source file for document '{document.file_name}'"
+                ),
+            ) from exc
+
+        chunks = sorted(
+            document.chunks,
+            key=lambda chunk: (
+                chunk.start_page or 0,
+                chunk.page_number or 0,
+                chunk.created_at,
+                chunk.id,
+            ),
+        )
+
+        export_documents.append(
+            KnowledgeBaseExportDocument(
+                file_name=document.file_name,
+                file_size=document.file_size,
+                content_type=document.content_type,
+                file_hash=document.file_hash,
+                analysis=document.analysis,
+                created_at=document.created_at,
+                updated_at=document.updated_at,
+                source_bytes_base64=base64.b64encode(source_bytes).decode("ascii"),
+                chunks=[
+                    KnowledgeBaseExportChunk(
+                        id=chunk.id,
+                        chunk_type=chunk.chunk_type,
+                        chunk_label=chunk.chunk_label,
+                        page_number=chunk.page_number,
+                        start_page=chunk.start_page,
+                        end_page=chunk.end_page,
+                        chunk_metadata=chunk.chunk_metadata or {},
+                        hash=chunk.hash,
+                        created_at=chunk.created_at,
+                        updated_at=chunk.updated_at,
+                    )
+                    for chunk in chunks
+                ],
+            )
+        )
+
+    return KnowledgeBaseExportPayload(
+        export_version=1,
+        exported_at=datetime.utcnow(),
+        knowledge_base=KnowledgeBaseExportMetadata(
+            name=kb.name,
+            description=kb.description,
+            created_at=kb.created_at,
+            updated_at=kb.updated_at,
+        ),
+        documents=export_documents,
+    )
 
 
 @router.post("", response_model=KnowledgeBaseResponse)
@@ -58,6 +221,138 @@ def create_knowledge_base(
     db.refresh(kb)
     logger.info(f"Knowledge base created: {kb.name} for user {current_user.id}")
     return kb
+
+
+@router.post("/import", response_model=KnowledgeBaseResponse)
+async def import_knowledge_base(
+    *,
+    db: Session = Depends(get_db),
+    file: UploadFile,
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """
+    Import a knowledge base from a JSON export file.
+    """
+    try:
+        payload = KnowledgeBaseExportPayload.model_validate_json(await file.read())
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid knowledge base export: {exc.errors()}"
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=400, detail="Import file is not valid JSON"
+        ) from exc
+
+    if payload.export_version != 1:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported export version: {payload.export_version}",
+        )
+
+    kb = KnowledgeBase(
+        name=payload.knowledge_base.name,
+        description=payload.knowledge_base.description,
+        user_id=current_user.id,
+        created_at=payload.knowledge_base.created_at,
+        updated_at=payload.knowledge_base.updated_at,
+    )
+    db.add(kb)
+    db.flush()
+
+    uploaded_objects: list[str] = []
+
+    try:
+        minio_client = get_minio_client()
+
+        for exported_document in payload.documents:
+            try:
+                source_bytes = base64.b64decode(
+                    exported_document.source_bytes_base64
+                )
+            except binascii.Error as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Import file contains invalid source bytes for "
+                        f"document '{exported_document.file_name}'"
+                    ),
+                ) from exc
+            object_path = f"kb_{kb.id}/{exported_document.file_name}"
+
+            minio_client.put_object(
+                bucket_name=settings.MINIO_BUCKET_NAME,
+                object_name=object_path,
+                data=BytesIO(source_bytes),
+                length=len(source_bytes),
+                content_type=exported_document.content_type,
+            )
+            uploaded_objects.append(object_path)
+
+            document = Document(
+                file_name=exported_document.file_name,
+                file_path=object_path,
+                file_hash=exported_document.file_hash
+                or hashlib.sha256(source_bytes).hexdigest(),
+                file_size=exported_document.file_size or len(source_bytes),
+                content_type=exported_document.content_type,
+                knowledge_base_id=kb.id,
+                analysis=exported_document.analysis,
+                created_at=exported_document.created_at,
+                updated_at=exported_document.updated_at,
+            )
+            db.add(document)
+            db.flush()
+
+            for exported_chunk in exported_document.chunks:
+                chunk_id = _build_imported_chunk_id(
+                    kb.id, document.id, exported_chunk.id
+                )
+                chunk_metadata = _build_imported_chunk_metadata(
+                    exported_chunk.chunk_metadata,
+                    kb.id,
+                    document.id,
+                    chunk_id,
+                )
+                db.add(
+                    DocumentChunk(
+                        id=chunk_id,
+                        kb_id=kb.id,
+                        document_id=document.id,
+                        file_name=document.file_name,
+                        chunk_type=exported_chunk.chunk_type,
+                        chunk_label=exported_chunk.chunk_label,
+                        page_number=exported_chunk.page_number,
+                        start_page=exported_chunk.start_page,
+                        end_page=exported_chunk.end_page,
+                        chunk_metadata=chunk_metadata,
+                        hash=_build_chunk_hash(chunk_metadata),
+                        created_at=exported_chunk.created_at,
+                        updated_at=exported_chunk.updated_at,
+                    )
+                )
+
+        db.commit()
+        db.refresh(kb)
+        logger.info(
+            "Knowledge base imported: %s for user %s", kb.name, current_user.id
+        )
+        return kb
+    except HTTPException:
+        db.rollback()
+        _cleanup_imported_objects(uploaded_objects)
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.error(
+            "Failed to import knowledge base for user %s: %s",
+            current_user.id,
+            exc,
+        )
+        _cleanup_imported_objects(uploaded_objects)
+        raise HTTPException(
+            status_code=500, detail=f"Failed to import knowledge base: {exc}"
+        ) from exc
 
 
 @router.get("", response_model=List[KnowledgeBaseResponse])
@@ -107,6 +402,36 @@ def get_knowledge_base(
     return kb
 
 
+@router.get("/{kb_id}/export")
+def export_knowledge_base(
+    *,
+    db: Session = Depends(get_db),
+    kb_id: int,
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """
+    Export a knowledge base to a portable JSON snapshot.
+    """
+    kb = (
+        db.query(KnowledgeBase)
+        .options(
+            selectinload(KnowledgeBase.documents).selectinload(Document.chunks)
+        )
+        .filter(KnowledgeBase.id == kb_id, KnowledgeBase.user_id == current_user.id)
+        .first()
+    )
+    if not kb:
+        raise HTTPException(status_code=404, detail="Knowledge base not found")
+
+    payload = _build_knowledge_base_export_payload(kb)
+    file_name = _sanitize_export_file_name(kb.name, kb.id)
+
+    return JSONResponse(
+        content=payload.model_dump(mode="json"),
+        headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
+    )
+
+
 @router.put("/{kb_id}", response_model=KnowledgeBaseResponse)
 def update_knowledge_base(
     *,
@@ -149,11 +474,7 @@ async def delete_knowledge_base(
     """
     logger = logging.getLogger(__name__)
 
-    kb = (
-        db.query(KnowledgeBase)
-        .filter(KnowledgeBase.id == kb_id, KnowledgeBase.user_id == current_user.id)
-        .first()
-    )
+    kb = _get_knowledge_base_for_user(db, kb_id, current_user.id)
     if not kb:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
 
@@ -209,11 +530,7 @@ async def upload_kb_documents(
     """
     Upload multiple documents to MinIO.
     """
-    kb = (
-        db.query(KnowledgeBase)
-        .filter(KnowledgeBase.id == kb_id, KnowledgeBase.user_id == current_user.id)
-        .first()
-    )
+    kb = _get_knowledge_base_for_user(db, kb_id, current_user.id)
     if not kb:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
 
@@ -301,11 +618,7 @@ async def process_kb_documents(
     """
     Process multiple documents asynchronously.
     """
-    kb = (
-        db.query(KnowledgeBase)
-        .filter(KnowledgeBase.id == kb_id, KnowledgeBase.user_id == current_user.id)
-        .first()
-    )
+    kb = _get_knowledge_base_for_user(db, kb_id, current_user.id)
 
     if not kb:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
@@ -420,11 +733,7 @@ async def get_kb_tasks(
     and keep failures visible after a page reload without relying on in-memory
     state.
     """
-    kb = (
-        db.query(KnowledgeBase)
-        .filter(KnowledgeBase.id == kb_id, KnowledgeBase.user_id == current_user.id)
-        .first()
-    )
+    kb = _get_knowledge_base_for_user(db, kb_id, current_user.id)
     if not kb:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
 
@@ -509,11 +818,7 @@ async def get_processing_tasks(
     """
     task_id_list = [int(id.strip()) for id in task_ids.split(",")]
 
-    kb = (
-        db.query(KnowledgeBase)
-        .filter(KnowledgeBase.id == kb_id, KnowledgeBase.user_id == current_user.id)
-        .first()
-    )
+    kb = _get_knowledge_base_for_user(db, kb_id, current_user.id)
 
     if not kb:
         raise HTTPException(status_code=404, detail="Knowledge base not found")

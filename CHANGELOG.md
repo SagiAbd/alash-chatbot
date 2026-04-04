@@ -2,6 +2,13 @@
 
 ## [2026-04-05]
 
+### Added
+- Added knowledge base export/import round-tripping as portable JSON snapshots, including KB metadata, stored documents, stored chunks, and original OCR source files
+- Added an `Export KB` action on the knowledge-base detail page and an `Import KB` action on the knowledge-base list page so exported snapshots can be restored into a fresh knowledge base
+
+### Improved
+- Aligned the knowledge-base detail page actions so `Export KB` now sits beside `Upload documents` on the same row
+
 ### Fixed
 - Fixed a document-processing regression in `extract_pages()` where a loop counter shadowed the `BookIndex` object and caused `'int' object has no attribute 'metadata'` during OCR page chunk creation
 - Kept failed document-processing rows visible after reload by returning failed tasks from the knowledge-base tasks endpoint and marking `DocumentUpload` records as failed when processing errors occur

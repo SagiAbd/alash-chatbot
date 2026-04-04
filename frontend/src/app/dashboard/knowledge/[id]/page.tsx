@@ -5,7 +5,7 @@ import { useState, useCallback } from "react";
 import { DocumentList } from "@/components/knowledge-base/document-list";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
-import { Upload, X } from "lucide-react";
+import { Download, Upload, X } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useDropzone } from "react-dropzone";
 import DashboardLayout from "@/components/layout/dashboard-layout";
@@ -22,6 +22,7 @@ export default function KnowledgeBasePage() {
   const { toast } = useToast();
   const [queuedFiles, setQueuedFiles] = useState<QueuedFile[]>([]);
   const [listRefreshKey, setListRefreshKey] = useState(0);
+  const [exporting, setExporting] = useState(false);
 
   const uploadAndProcess = useCallback(
     async (files: File[]) => {
@@ -93,18 +94,76 @@ export default function KnowledgeBasePage() {
   const removeQueued = (index: number) =>
     setQueuedFiles((prev) => prev.filter((_, i) => i !== index));
 
+  const handleExport = useCallback(async () => {
+    setExporting(true);
+    try {
+      const token =
+        typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
+      const response = await fetch(`/api/knowledge-base/${knowledgeBaseId}/export`, {
+        method: "GET",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new ApiError(
+          response.status,
+          errorData.message || errorData.detail || "Failed to export knowledge base"
+        );
+      }
+
+      const blob = await response.blob();
+      const objectUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const contentDisposition = response.headers.get("content-disposition") || "";
+      const fileNameMatch = contentDisposition.match(/filename=\"([^\"]+)\"/i);
+
+      link.href = objectUrl;
+      link.download = fileNameMatch?.[1] || `knowledge-base-${knowledgeBaseId}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(objectUrl);
+
+      toast({
+        title: "Success",
+        description: "Knowledge base exported successfully",
+      });
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : "Export failed";
+      toast({
+        title: "Export failed",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setExporting(false);
+    }
+  }, [knowledgeBaseId, toast]);
+
   return (
     <DashboardLayout>
       <div className="mb-8">
         <h1 className="text-3xl font-bold">Knowledge Base</h1>
       </div>
 
-      {/* Upload button */}
-      <div {...getRootProps()} className="mb-6">
-        <input {...getInputProps()} />
-        <Button variant="outline" className="gap-2">
-          <Upload className="h-4 w-4" />
-          Upload documents
+      {/* Primary actions */}
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        <div {...getRootProps()}>
+          <input {...getInputProps()} />
+          <Button variant="outline" className="gap-2">
+            <Upload className="h-4 w-4" />
+            Upload documents
+          </Button>
+        </div>
+        <Button
+          variant="outline"
+          className="gap-2"
+          onClick={handleExport}
+          disabled={exporting}
+        >
+          <Download className="h-4 w-4" />
+          {exporting ? "Exporting..." : "Export KB"}
         </Button>
       </div>
 

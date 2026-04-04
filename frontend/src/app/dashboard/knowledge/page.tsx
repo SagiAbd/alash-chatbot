@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { FileIcon, defaultStyles } from "react-file-icon";
-import { ArrowRight, Plus, Settings, Trash2, Search } from "lucide-react";
+import { ArrowRight, Plus, Settings, Trash2, Search, Upload } from "lucide-react";
 import DashboardLayout from "@/components/layout/dashboard-layout";
 import { api, ApiError } from "@/lib/api";
 import { useToast } from "@/components/ui/use-toast";
@@ -30,6 +30,8 @@ interface Document {
 export default function KnowledgeBasePage() {
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [loading, setLoading] = useState(true);
+  const [importing, setImporting] = useState(false);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -76,6 +78,38 @@ export default function KnowledgeBasePage() {
     }
   };
 
+  const handleImport = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setImporting(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const imported = await api.post("/api/knowledge-base/import", formData);
+      await fetchKnowledgeBases();
+      toast({
+        title: "Success",
+        description: `Imported knowledge base "${imported.name}"`,
+      });
+    } catch (error) {
+      console.error("Failed to import knowledge base:", error);
+      if (error instanceof ApiError) {
+        toast({
+          title: "Error",
+          description: error.message,
+          variant: "destructive",
+        });
+      }
+    } finally {
+      event.target.value = "";
+      setImporting(false);
+    }
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-8">
@@ -88,13 +122,31 @@ export default function KnowledgeBasePage() {
               Manage your knowledge bases and documents
             </p>
           </div>
-          <Link
-            href="/dashboard/knowledge/new"
-            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            New Knowledge Base
-          </Link>
+          <div className="flex items-center gap-3">
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".json,application/json"
+              className="hidden"
+              onChange={handleImport}
+            />
+            <button
+              type="button"
+              onClick={() => importInputRef.current?.click()}
+              disabled={importing}
+              className="inline-flex items-center justify-center rounded-md border px-4 py-2 text-sm font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Upload className="mr-2 h-4 w-4" />
+              {importing ? "Importing..." : "Import KB"}
+            </button>
+            <Link
+              href="/dashboard/knowledge/new"
+              className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              New Knowledge Base
+            </Link>
+          </div>
         </div>
 
         <div className="grid gap-6">
