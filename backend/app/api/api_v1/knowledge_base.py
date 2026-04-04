@@ -651,7 +651,7 @@ async def get_document_chunks(
         db.query(DocumentChunk)
         .filter(
             DocumentChunk.document_id == doc_id,
-            DocumentChunk.chunk_type == "work",
+            DocumentChunk.chunk_type.in_(["toc", "work"]),
         )
         .all()
     )

@@ -27,7 +27,9 @@ from app.models.knowledge import Document, DocumentChunk, ProcessingTask
 from app.services.book_indexer import (
     BookIndexingError,
     build_analysis_input,
+    enrich_index_with_toc,
     extract_pages,
+    extract_toc,
     extract_works,
     index_book,
     load_pages_from_json,
@@ -182,6 +184,7 @@ def process_document_background(
         logger.info(f"Task {task_id}: Running LLM book analysis")
         t0 = time.monotonic()
         book_index = index_book(analysis_input, known_authors=known_authors or None)
+        book_index = enrich_index_with_toc(pages, book_index)
         logger.info(
             f"Task {task_id}: Analysis complete in {time.monotonic() - t0:.1f}s — "
             f"{len(book_index.works)} works found, "
@@ -195,6 +198,7 @@ def process_document_background(
             )
 
         # 6. Extract work-level text segments and raw pages
+        toc_doc = extract_toc(pages, book_index, file_name)
         work_docs = extract_works(pages, book_index, file_name)
         if not work_docs:
             raise BookIndexingError(
@@ -252,6 +256,40 @@ def process_document_background(
 
         # 9. Store DocumentChunk records in DB
         t0 = time.monotonic()
+        if toc_doc is not None:
+            toc_chunk_id = hashlib.sha256(
+                (
+                    f"toc:{kb_id}:{final_file_name}:"
+                    f"{toc_doc.metadata.get('work_title', 'toc')}:"
+                    f"{toc_doc.page_content[:200]}"
+                ).encode()
+            ).hexdigest()
+
+            toc_doc.metadata["kb_id"] = kb_id
+            toc_doc.metadata["document_id"] = document.id
+            toc_doc.metadata["chunk_id"] = toc_chunk_id
+            toc_doc.metadata["chunk_type"] = "toc"
+
+            db.add(
+                DocumentChunk(
+                    id=toc_chunk_id,
+                    document_id=document.id,
+                    kb_id=kb_id,
+                    file_name=file_name,
+                    chunk_type="toc",
+                    chunk_label=toc_doc.metadata.get("work_title"),
+                    start_page=toc_doc.metadata.get("start_page"),
+                    end_page=toc_doc.metadata.get("end_page"),
+                    chunk_metadata={
+                        "page_content": toc_doc.page_content,
+                        **toc_doc.metadata,
+                    },
+                    hash=hashlib.sha256(
+                        (toc_doc.page_content + str(toc_doc.metadata)).encode()
+                    ).hexdigest(),
+                )
+            )
+
         for i, doc in enumerate(work_docs):
             chunk_id = hashlib.sha256(
                 (
@@ -317,7 +355,9 @@ def process_document_background(
 
         db.commit()
         logger.info(
-            f"Task {task_id}: Stored {len(work_docs) + len(page_docs)} chunk records "
+            f"Task {task_id}: Stored "
+            f"{len(work_docs) + len(page_docs) + (1 if toc_doc is not None else 0)} "
+            f"chunk records "
             f"in {time.monotonic() - t0:.1f}s"
         )
 

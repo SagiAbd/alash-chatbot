@@ -39,6 +39,14 @@ class WorkEntry(BaseModel):
     end_page: int
 
 
+class TOCEntry(BaseModel):
+    """The document's table of contents page span."""
+
+    title: str
+    start_page: int
+    end_page: int
+
+
 class BookMetadata(BaseModel):
     """Top-level metadata extracted from the book."""
 
@@ -54,6 +62,7 @@ class BookIndex(BaseModel):
     summary: str
     metadata: BookMetadata
     works: List[WorkEntry]
+    toc: Optional[TOCEntry] = None
 
 
 class BookIndexingError(Exception):
@@ -75,6 +84,7 @@ _ALLOWED_RE = re.compile(
 
 # Lines that are purely numbers / punctuation / whitespace (e.g. page footers)
 _NOISE_LINE_RE = re.compile(r"^\s*[\d\W]+\s*$")
+_TOC_LINE_RE = re.compile(r"(?:\.{2,}\s*|\s)\d{1,4}\s*$")
 
 
 def clean_page_text(text: str) -> str:
@@ -98,6 +108,109 @@ def clean_page_text(text: str) -> str:
     return "\n".join(lines).strip()
 
 
+def _parse_page_number(value: object, fallback: int) -> int:
+    """Coerce a JSON page field into a positive integer."""
+
+    try:
+        page_number = int(value)
+    except (TypeError, ValueError):
+        return fallback
+
+    return page_number if page_number > 0 else fallback
+
+
+def _page_number(page: LangchainDocument, fallback: int) -> int:
+    """Read the canonical OCR page number from document metadata."""
+
+    return _parse_page_number(page.metadata.get("page"), fallback)
+
+
+def _contains_toc_pattern(text: str) -> bool:
+    """Return True when the page explicitly mentions the table of contents."""
+
+    text_lower = text.lower()
+    return any(pattern in text_lower for pattern in TOC_PATTERNS)
+
+
+def _looks_like_toc_page(text: str) -> bool:
+    """Heuristically detect TOC continuation pages without a heading."""
+
+    if _contains_toc_pattern(text):
+        return True
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    toc_like_lines = sum(
+        1
+        for line in lines[:40]
+        if _TOC_LINE_RE.search(line) and any(char.isalpha() for char in line)
+    )
+    return toc_like_lines >= 2
+
+
+def find_toc_page_indexes(pages: List[LangchainDocument]) -> List[int]:
+    """Find the OCR page indexes that belong to the table of contents."""
+
+    selected: dict[int, None] = {}
+    total_pages = len(pages)
+
+    for index, page in enumerate(pages):
+        if not _contains_toc_pattern(page.page_content):
+            continue
+
+        selected[index] = None
+        for next_index in range(index + 1, min(index + 4, total_pages)):
+            if not _looks_like_toc_page(pages[next_index].page_content):
+                break
+            selected[next_index] = None
+
+    return sorted(selected)
+
+
+def _extract_toc_title(text: str) -> str:
+    """Extract the visible TOC heading from the page text when possible."""
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped and _contains_toc_pattern(stripped):
+            return re.sub(r"\s+", " ", stripped)[:120]
+
+    return "Table of Contents"
+
+
+def enrich_index_with_toc(
+    pages: List[LangchainDocument],
+    index: BookIndex,
+) -> BookIndex:
+    """Attach a deterministic TOC entry to the LLM-generated index."""
+
+    toc_indexes = find_toc_page_indexes(pages)
+    if not toc_indexes:
+        return index
+
+    first_index = toc_indexes[0]
+    last_index = toc_indexes[-1]
+    index.toc = TOCEntry(
+        title=_extract_toc_title(pages[first_index].page_content),
+        start_page=_page_number(pages[first_index], first_index + 1),
+        end_page=_page_number(pages[last_index], last_index + 1),
+    )
+    return index
+
+
+def _select_pages_in_range(
+    pages: List[LangchainDocument],
+    start_page: int,
+    end_page: int,
+) -> List[LangchainDocument]:
+    """Select OCR pages by their actual page numbers, not list positions."""
+
+    return [
+        page
+        for index, page in enumerate(pages, start=1)
+        if start_page <= _page_number(page, index) <= end_page
+    ]
+
+
 # ─── Page loading ─────────────────────────────────────────────────────────────
 
 
@@ -119,11 +232,11 @@ def load_pages_from_json(file_path: str) -> List[LangchainDocument]:
     if not isinstance(data, list):
         raise BookIndexingError("JSON file must be a list of page objects")
 
-    pages = sorted(data, key=lambda x: int(x.get("page", 0)))
+    pages = sorted(data, key=lambda item: _parse_page_number(item.get("page"), 0))
     return [
         LangchainDocument(
             page_content=clean_page_text(item.get("text", "")),
-            metadata={"page": int(item.get("page", idx))},
+            metadata={"page": _parse_page_number(item.get("page"), idx + 1)},
         )
         for idx, item in enumerate(pages)
     ]
@@ -136,9 +249,9 @@ def build_analysis_input(pages: List[LangchainDocument]) -> str:
     """Collect the pages sent to the LLM for analysis.
 
     Gathers:
-    - First 5 pages
-    - Last 3 pages
-    - TOC pages (pages containing any TOC keyword) plus the next 3 pages each
+    - First 3 pages
+    - Last 2 pages
+    - Detected TOC pages
 
     Args:
         pages: Full list of cleaned page documents.
@@ -157,16 +270,12 @@ def build_analysis_input(pages: List[LangchainDocument]) -> str:
     for i in range(max(0, n - 2), n):
         selected[i] = pages[i]
 
-    # TOC pages + next 3 (dict keyed by index deduplicates overlapping pages)
-    for i, page in enumerate(pages):
-        text_lower = page.page_content.lower()
-        if any(pat in text_lower for pat in TOC_PATTERNS):
-            for j in range(i, min(i + 4, n)):
-                selected[j] = pages[j]
+    for index in find_toc_page_indexes(pages):
+        selected[index] = pages[index]
 
     parts: List[str] = []
     for idx in sorted(selected):
-        page_num = selected[idx].metadata.get("page", idx)
+        page_num = _page_number(selected[idx], idx + 1)
         parts.append(f"--- Page {page_num} ---\n{selected[idx].page_content}")
 
     return "\n\n".join(parts)
@@ -293,8 +402,8 @@ def extract_works(
 ) -> List[LangchainDocument]:
     """Extract each work's text from the full page list.
 
-    For each WorkEntry in the index, joins pages in the range
-    [start_page - 1, end_page + 1] (with ±1 page margin for context).
+    For each WorkEntry in the index, joins OCR pages whose actual page numbers
+    fall inside the declared TOC range.
 
     Args:
         pages: Full list of cleaned page documents.
@@ -304,22 +413,29 @@ def extract_works(
     Returns:
         List of LangchainDocument objects, one per work, with rich metadata.
     """
-    n = len(pages)
     docs: List[LangchainDocument] = []
 
     for work in index.works:
-        # Page numbers from the LLM are 1-indexed (matching --- Page N --- markers).
-        # pages list is 0-indexed: page P → index P-1.
-        # Apply ±1 page padding around each work.
-        #   start index = (start_page - 1) - 1 = start_page - 2
-        #   end index   = (end_page   - 1) + 1 = end_page
-        start = max(0, work.start_page - 2)
-        end = min(n - 1, work.end_page)
-        text = " ".join(p.page_content for p in pages[start : end + 1])
+        extracted_pages = _select_pages_in_range(pages, work.start_page, work.end_page)
+        text = "\n\n".join(
+            page.page_content for page in extracted_pages if page.page_content.strip()
+        )
+
+        if not extracted_pages:
+            logger.warning(
+                "Work '%s' pages %s-%s matched no OCR pages, skipping",
+                work.title,
+                work.start_page,
+                work.end_page,
+            )
+            continue
 
         if len(text.strip()) < 50:
             logger.warning(
-                f"Work '{work.title}' pages {start}-{end} produced < 50 chars, skipping"
+                "Work '%s' pages %s-%s produced < 50 chars, skipping",
+                work.title,
+                work.start_page,
+                work.end_page,
             )
             continue
 
@@ -340,6 +456,49 @@ def extract_works(
     return docs
 
 
+def extract_toc(
+    pages: List[LangchainDocument],
+    index: BookIndex,
+    file_name: str,
+) -> Optional[LangchainDocument]:
+    """Extract the table of contents as a standalone section document."""
+
+    if index.toc is None:
+        return None
+
+    extracted_pages = _select_pages_in_range(
+        pages,
+        index.toc.start_page,
+        index.toc.end_page,
+    )
+    if not extracted_pages:
+        logger.warning(
+            "TOC pages %s-%s matched no OCR pages, skipping",
+            index.toc.start_page,
+            index.toc.end_page,
+        )
+        return None
+
+    text = "\n\n".join(
+        page.page_content for page in extracted_pages if page.page_content.strip()
+    )
+    if not text.strip():
+        return None
+
+    return LangchainDocument(
+        page_content=text,
+        metadata={
+            "source": file_name,
+            "work_title": index.toc.title,
+            "main_author": index.metadata.main_author,
+            "book_title": index.metadata.book_title,
+            "start_page": index.toc.start_page,
+            "end_page": index.toc.end_page,
+            "section_type": "toc",
+        },
+    )
+
+
 def extract_pages(
     pages: List[LangchainDocument],
     index: BookIndex,
@@ -357,8 +516,8 @@ def extract_pages(
     """
     docs: List[LangchainDocument] = []
 
-    for page in pages:
-        page_number = int(page.metadata.get("page", 0))
+    for index, page in enumerate(pages, start=1):
+        page_number = _page_number(page, index)
         if not page.page_content.strip():
             continue
 

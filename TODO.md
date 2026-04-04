@@ -10,15 +10,16 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 
 ### In Progress
 
-- enforce deeper work-level reading before broad author-study answers
+- enforce deeper work-level reading before broad author-study answers  
 
 ### Done
 
-- add AGENT_VERBOSE switch for full prompt logging
-- prevent wrong internal id guessing after catalog search
-- make author-study answers use author-first retrieval and deeper work inspection
-- normalize alash figure naming in answers to ұлы/қызы forms
-- restructure system prompt for deeper, more comprehensive research behavior
+- recheck document loading and TOC extraction  
+- add AGENT_VERBOSE switch for full prompt logging  
+- prevent wrong internal id guessing after catalog search  
+- make author-study answers use author-first retrieval and deeper work inspection  
+- normalize alash figure naming in answers to ұлы/қызы forms  
+- restructure system prompt for deeper, more comprehensive research behavior  
 - after reload the chat page, it errors with task canceled  
 - animations and agent vis are bad. add support for advanced markdown, e.g tables  
 - agent is too wordy, work with system prompt  

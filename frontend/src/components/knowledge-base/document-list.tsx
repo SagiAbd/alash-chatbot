@@ -38,6 +38,7 @@ interface BookAnalysis {
     publisher: string;
     year: string;
   };
+  toc?: { title: string; start_page: number; end_page: number } | null;
   works: Array<{ title: string; start_page: number; end_page: number }>;
 }
 
@@ -69,6 +70,7 @@ interface Chunk {
     book_title?: string;
     start_page?: number;
     end_page?: number;
+    section_type?: string;
     [key: string]: unknown;
   };
 }
@@ -155,6 +157,10 @@ function Section({
 
 function WorkChunk({ chunk, idx }: { chunk: Chunk; idx: number }) {
   const [open, setOpen] = useState(false);
+  const title =
+    chunk.chunk_metadata.work_title ??
+    (chunk.chunk_metadata.section_type === "toc" ? "Table of Contents" : `Work ${idx + 1}`);
+
   return (
     <div className="py-3">
       <button
@@ -163,7 +169,7 @@ function WorkChunk({ chunk, idx }: { chunk: Chunk; idx: number }) {
       >
         <span className="font-medium flex items-center gap-1">
           {open ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
-          {chunk.chunk_metadata.work_title ?? `Work ${idx + 1}`}
+          {title}
         </span>
         {chunk.chunk_metadata.start_page != null && (
           <span className="text-xs text-muted-foreground whitespace-nowrap">
@@ -303,6 +309,9 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
       setLoadingModal((prev) => ({ ...prev, [row.key]: false }));
     }
   };
+
+  const tocEntry = modal?.row.analysis?.toc ?? null;
+  const tocItems = [...(tocEntry ? [tocEntry] : []), ...(modal?.row.analysis?.works ?? [])];
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -455,10 +464,10 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
             )}
 
             {/* Table of contents */}
-            {modal?.row.analysis?.works && modal.row.analysis.works.length > 0 && (
-              <Section title={`Table of Contents (${modal.row.analysis.works.length} works)`}>
+            {tocItems.length > 0 && (
+              <Section title={`Table of Contents (${tocItems.length} items)`}>
                 <ol className="space-y-1">
-                  {modal.row.analysis.works.map((w, i) => (
+                  {tocItems.map((w, i) => (
                     <li key={i} className="flex justify-between gap-4">
                       <span className="text-foreground">{w.title}</span>
                       <span className="text-muted-foreground whitespace-nowrap text-xs mt-0.5">
@@ -472,7 +481,7 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
 
             {/* Works content */}
             {modal && modal.chunks.length > 0 && (
-              <Section title={`Works (${modal.chunks.length})`} defaultOpen={false}>
+              <Section title={`Sections (${modal.chunks.length})`} defaultOpen={false}>
                 <div className="divide-y">
                   {[...modal.chunks]
                     .sort((a, b) => (a.chunk_metadata.start_page ?? 0) - (b.chunk_metadata.start_page ?? 0))

@@ -6,6 +6,7 @@
 - First-class work/page retrieval metadata on `DocumentChunk` plus a migration to support raw page search and page-window inspection
 
 ### Improved
+- Fixed OCR page-range extraction so sparse `ocr.json` files use actual page numbers instead of list offsets, and added a stored TOC section to document analysis plus the document viewer
 - Added an `AGENT_VERBOSE` switch that turns on LangChain verbose mode and logs the exact final message payload plus raw model response for each agent LLM call
 - Made catalog search results include explicit internal navigation IDs for authors/books/works so the agent can chain follow-up tool calls without inventing the wrong numbers
 - Added a prompt rule requiring the agent to reuse internal IDs exactly as returned by search tools instead of guessing new ones
