@@ -15,6 +15,8 @@ from app.services.agent.graph import run_turn
 from app.services.agent.llm_cache import _llm_cache
 from app.services.agent.state import TurnLog
 from app.services.agent.tools import create_tools
+from app.services.app_settings import get_runtime_chat_provider_model
+from app.services.llm.llm_factory import LLMFactory
 
 logger = logging.getLogger(__name__)
 
@@ -88,13 +90,16 @@ async def generate_response(
         )
 
         # Get LLM with tools bound (from cache)
-        _llm_key = (settings.CHAT_PROVIDER, 0.0, True)
+        provider, configured_model = get_runtime_chat_provider_model(db)
+        model = configured_model or LLMFactory.default_model_for_provider(provider)
+        _llm_key = (provider, model, 0.0, True)
         llm = _llm_cache[_llm_key]
         llm_with_tools = llm.bind_tools(tools)
         turn_log.add_event(
             "llm.bind",
             "Bound tools to chat model",
-            provider=settings.CHAT_PROVIDER,
+            provider=provider,
+            model=model,
             tool_bound=True,
         )
 

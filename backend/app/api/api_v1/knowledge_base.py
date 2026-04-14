@@ -46,6 +46,7 @@ from app.schemas.knowledge import (
     KnowledgeBaseResponse,
     KnowledgeBaseUpdate,
 )
+from app.services.app_settings import get_or_create_app_settings
 from app.services.document_processor import process_document_background
 
 router = APIRouter()
@@ -493,6 +494,29 @@ def update_knowledge_base(
     return kb
 
 
+@router.post("/{kb_id}/set-public-chatbot")
+def set_public_chatbot_kb(
+    *,
+    db: Session = Depends(get_db),
+    kb_id: int,
+    current_user: User = Depends(get_current_admin),
+) -> Any:
+    """Set the knowledge base used by the public chatbot."""
+    kb = _get_knowledge_base_for_user(db, kb_id, current_user.id)
+    if not kb:
+        raise HTTPException(status_code=404, detail="Knowledge base not found")
+
+    app_settings = get_or_create_app_settings(db)
+    app_settings.public_kb_id = kb.id
+    db.add(app_settings)
+    db.commit()
+
+    return {
+        "message": f'"{kb.name}" is now the public chatbot knowledge base',
+        "public_kb_id": kb.id,
+    }
+
+
 @router.delete("/{kb_id}")
 async def delete_knowledge_base(
     *,
@@ -512,6 +536,7 @@ async def delete_knowledge_base(
     try:
         minio_client = get_minio_client()
         cleanup_errors = []
+        app_settings = get_or_create_app_settings(db)
 
         # 1. Clean up MinIO files
         try:
@@ -525,6 +550,10 @@ async def delete_knowledge_base(
         except MinioException as e:
             cleanup_errors.append(f"Failed to clean up MinIO files: {str(e)}")
             logger.error(f"MinIO cleanup error for kb {kb_id}: {str(e)}")
+
+        if app_settings.public_kb_id == kb.id:
+            app_settings.public_kb_id = None
+            db.add(app_settings)
 
         # 2. Delete database records
         db.delete(kb)

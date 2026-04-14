@@ -12,6 +12,9 @@
 - Updated both KB upload UIs to reconcile files by upload order/object identity instead of file name, so two files with the same name no longer overwrite each other's client-side status
 - Hardened glossary XLSX parsing to tolerate removed optional columns, shifted or partially removed metadata rows, and non-active worksheet exports, while returning a cleaner validation error for invalid workbook files
 
+### Added
+- Added DB-backed app settings, a public chatbot KB selector, runtime-configurable public welcome text/provider/model fields, and dedicated unauthenticated public chat/config API endpoints
+
 ## [2026-04-05]
 
 ### Added

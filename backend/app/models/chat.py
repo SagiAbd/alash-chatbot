@@ -19,7 +19,8 @@ class Chat(Base, TimestampMixin):
 
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(255), nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    is_public = Column(Boolean, nullable=False, default=False)
 
     # Relationships
     messages = relationship(

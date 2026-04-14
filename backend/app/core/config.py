@@ -36,6 +36,16 @@ class Settings(BaseSettings):
     # Chat Provider settings
     CHAT_PROVIDER: str = os.getenv("CHAT_PROVIDER", "openai")
     AGENT_VERBOSE: bool = os.getenv("AGENT_VERBOSE", "false").lower() == "true"
+    PUBLIC_WELCOME_TITLE: str = os.getenv(
+        "PUBLIC_WELCOME_TITLE", "Алаш мұрасымен сұхбат"
+    )
+    PUBLIC_WELCOME_TEXT: str = os.getenv(
+        "PUBLIC_WELCOME_TEXT",
+        (
+            "Алаш қайраткерлері, кітаптар мен ұғымдар туралы сұрақ қойыңыз. "
+            "Бұл ашық чат таңдалған білім қорына сүйеніп жауап береді."
+        ),
+    )
 
     # Embeddings settings
     EMBEDDINGS_PROVIDER: str = os.getenv("EMBEDDINGS_PROVIDER", "openai")
