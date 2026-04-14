@@ -211,17 +211,17 @@ def process_document_background(
         page_docs = extract_pages(pages, book_index, file_name)
         logger.info(f"Task {task_id}: Extracted {len(work_docs)} work segments")
 
-        # 7. Determine final file name (rename to "Author - Title.json" if available)
+        # 7. Determine display file name (rename to "Author - Title.json" if available)
         main_author = book_index.metadata.main_author.strip()
         book_title = book_index.metadata.book_title.strip()
         if main_author and book_title:
-            safe = re.sub(
-                r"[^\w\s\-]", "", f"{main_author} - {book_title}", flags=re.UNICODE
-            )
-            final_file_name = f"{safe.strip()}.json"
+            final_file_name = f"{main_author} - {book_title}.json"
         else:
             final_file_name = file_name
-        permanent_path = f"kb_{kb_id}/{final_file_name}"
+        # Use the UUID from the temp path as the permanent object name so MinIO
+        # never sees non-ASCII characters in the object key.
+        temp_object_name = temp_path.split("/")[-1]  # e.g. "d4156c80....json"
+        permanent_path = f"kb_{kb_id}/{temp_object_name}"
 
         # Move temp → permanent (single copy, no intermediate step)
         t0 = time.monotonic()
