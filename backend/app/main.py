@@ -6,6 +6,7 @@ from langchain.globals import set_debug, set_verbose
 from app.api.api_v1.api import api_router
 from app.core.config import settings
 from app.core.minio import init_minio
+from app.services.admin_bootstrap import bootstrap_admin_from_env
 from app.startup.migarate import DatabaseMigrator
 
 set_verbose(settings.AGENT_VERBOSE)
@@ -41,6 +42,7 @@ async def startup_event():
     # Run database migrations
     migrator = DatabaseMigrator(settings.get_database_url)
     migrator.run_migrations()
+    bootstrap_admin_from_env()
     # Initialize LangGraph agent
     from app.services.agent.graph import init_graph
 

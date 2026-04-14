@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(
         os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "10080")
     )
+    ADMIN_USERNAME: str = os.getenv("ADMIN_USERNAME", "")
+    ADMIN_EMAIL: str = os.getenv("ADMIN_EMAIL", "")
+    ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "")
 
     # Chat Provider settings
     CHAT_PROVIDER: str = os.getenv("CHAT_PROVIDER", "openai")

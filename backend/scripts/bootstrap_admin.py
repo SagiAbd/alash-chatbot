@@ -2,9 +2,7 @@
 
 import argparse
 
-from app.core.security import get_password_hash
-from app.db.session import SessionLocal
-from app.models.user import User
+from app.services.admin_bootstrap import upsert_admin_user
 
 
 def parse_args() -> argparse.Namespace:
@@ -21,31 +19,12 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     """Create or update the requested admin user."""
     args = parse_args()
-    db = SessionLocal()
-    try:
-        user = db.query(User).filter(User.username == args.username).first()
-        if user is None:
-            user = User(
-                username=args.username,
-                email=args.email,
-                hashed_password=get_password_hash(args.password),
-                is_active=True,
-                is_superuser=True,
-            )
-            db.add(user)
-            action = "created"
-        else:
-            user.email = args.email
-            user.hashed_password = get_password_hash(args.password)
-            user.is_active = True
-            user.is_superuser = True
-            db.add(user)
-            action = "updated"
-
-        db.commit()
-        print(f"Admin user {action}: {user.username}")
-    finally:
-        db.close()
+    action = upsert_admin_user(
+        username=args.username,
+        email=args.email,
+        password=args.password,
+    )
+    print(f"Admin user {action}: {args.username}")
 
 
 if __name__ == "__main__":

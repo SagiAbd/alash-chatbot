@@ -17,6 +17,7 @@
 - Added a frontend route split with public `/` and `/chat` pages, admin routes under `/admin/...`, legacy redirects from `/login`, `/register`, and `/dashboard/...`, and a normal `Login` entry on the public site
 - Added an admin settings page plus a knowledge-base action to mark exactly one KB as the active public chatbot knowledge base from the existing dashboard UI
 - Added `backend/scripts/bootstrap_admin.py` to create or update the initial admin account now that public self-registration is disabled
+- Added env-driven admin bootstrap via `ADMIN_USERNAME`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD`, with sample local/dev credentials in `.env.example`
 
 ## [2026-04-05]
 
