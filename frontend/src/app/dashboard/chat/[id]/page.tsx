@@ -3,11 +3,85 @@
 import { useEffect, useRef, useState, useMemo, useCallback, KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useChat } from "ai/react";
-import { Send, User } from "lucide-react";
+import { Send, User, Bot } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import DashboardLayout from "@/components/layout/dashboard-layout";
 import { api, ApiError } from "@/lib/api";
 import { useToast } from "@/components/ui/use-toast";
 import { Answer } from "@/components/chat/answer";
+
+const TOOL_ACTION_KZ: Record<string, string> = {
+  search_catalog:        "Іздеудемін",
+  search_terms:          "Пәнсөздерін іздеудемін",
+  get_authors_and_books: "Мәліметтер жинаудамын",
+  get_book_details:      "Мәліметтер жинаудамын",
+  get_author_works:      "Мәліметтер жинаудамын",
+  get_work_content:      "Оқудамын",
+  search_pages:          "Іздеудемін",
+  get_page_window:       "Оқудамын",
+};
+
+// Backend streams step events as 8:[{...}] — AI SDK v4 maps code 8 to
+// "message_annotations", so these end up on `lastMessage.annotations`
+// (NOT on useChat's top-level `data`). Read from there.
+function getCurrentStatus(annotations: unknown[] | undefined): string {
+  if (!annotations || annotations.length === 0) return "Ойланудамын";
+  for (let i = annotations.length - 1; i >= 0; i--) {
+    const s = annotations[i] as { step?: string; tool?: string } | null;
+    if (s && s.step === "tool_call" && s.tool) {
+      return TOOL_ACTION_KZ[s.tool] ?? "Ойланудамын";
+    }
+  }
+  return "Ойланудамын";
+}
+
+function useSmoothedStatus(annotations: unknown[] | undefined, minMs = 1500): string {
+  const [displayed, setDisplayed] = useState("Ойланудамын");
+  const pendingRef = useRef<string | null>(null);
+  const lastChangeRef = useRef<number>(Date.now());
+
+  const currentStatus = getCurrentStatus(annotations);
+
+  useEffect(() => {
+    const elapsed = Date.now() - lastChangeRef.current;
+    if (elapsed >= minMs) {
+      setDisplayed(currentStatus);
+      lastChangeRef.current = Date.now();
+      pendingRef.current = null;
+    } else {
+      pendingRef.current = currentStatus;
+      const timer = setTimeout(() => {
+        if (pendingRef.current) {
+          setDisplayed(pendingRef.current);
+          lastChangeRef.current = Date.now();
+          pendingRef.current = null;
+        }
+      }, minMs - elapsed);
+      return () => clearTimeout(timer);
+    }
+  }, [currentStatus, minMs]);
+
+  return displayed;
+}
+
+function AgentStatusText({ annotations }: { annotations: unknown[] | undefined }) {
+  const status = useSmoothedStatus(annotations);
+  return (
+    <AnimatePresence mode="wait">
+      <motion.span
+        key={status}
+        initial={{ opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -4 }}
+        transition={{ duration: 0.25 }}
+        className="text-sm text-muted-foreground"
+      >
+        {status}
+        <span className="animate-pulse">...</span>
+      </motion.span>
+    </AnimatePresence>
+  );
+}
 
 interface ChatMessage {
   id: number;
@@ -220,11 +294,9 @@ export default function ChatPage({ params }: { params: { id: string } }) {
           {/* Empty state */}
           {messages.length === 0 && !isLoading && (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-              <img
-                src="/logo.png"
-                className="h-16 w-16 rounded-full mb-4 opacity-50"
-                alt="logo"
-              />
+              <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4 opacity-50">
+                <Bot className="h-8 w-8 text-muted-foreground" />
+              </div>
               <p className="text-lg font-medium">
                 Алаш чатботына қош келдіңіз
               </p>
@@ -265,11 +337,9 @@ export default function ChatPage({ params }: { params: { id: string } }) {
                   key={message.id}
                   className="flex items-start gap-3 chat-message-in"
                 >
-                  <img
-                    src="/logo.png"
-                    className="h-8 w-8 rounded-full shrink-0 mt-1 shadow-sm"
-                    alt="logo"
-                  />
+                  <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0 mt-1 shadow-sm">
+                    <Bot className="h-4 w-4 text-muted-foreground" />
+                  </div>
                   <div className="max-w-[95%] lg:max-w-[85%] rounded-2xl bg-muted/60 px-4 py-3 shadow-sm">
                     <Answer
                       markdown={visibleContent}
@@ -283,20 +353,20 @@ export default function ChatPage({ params }: { params: { id: string } }) {
             return null;
           })}
 
-          {/* Loading dots */}
+          {/* Loading status */}
           {showLoadingDots && (
             <div className="flex items-start gap-3 chat-message-in">
-              <img
-                src="/logo.png"
-                className="h-8 w-8 rounded-full shrink-0 mt-1 shadow-sm"
-                alt="logo"
-              />
+              <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0 mt-1 shadow-sm">
+                <Bot className="h-4 w-4 text-muted-foreground" />
+              </div>
               <div className="rounded-2xl bg-muted/60 px-5 py-4 shadow-sm">
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2 h-2 rounded-full bg-foreground/40 animate-bounce" />
-                  <div className="w-2 h-2 rounded-full bg-foreground/40 animate-bounce [animation-delay:0.15s]" />
-                  <div className="w-2 h-2 rounded-full bg-foreground/40 animate-bounce [animation-delay:0.3s]" />
-                </div>
+                <AgentStatusText
+                  annotations={
+                    lastMessage?.role === "assistant"
+                      ? (lastMessage as { annotations?: unknown[] }).annotations
+                      : undefined
+                  }
+                />
               </div>
             </div>
           )}

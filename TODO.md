@@ -4,8 +4,6 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 
 ### Todo
 
-- add agent steps calling animation  
-- add glossary tool (fuzzy search over terms database)  
 - fix kb upload duplicates  
 - deploy  
 - set admin and avg user permissions  
@@ -16,6 +14,8 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 
 ### Done
 
+- add glossary tool (fuzzy search over terms database)  
+- add agent steps calling animation  
 - enforce deeper work-level reading before broad author-study answers  
 - make TOC validation LLM-only and fail explicitly when TOC detection is unreliable  
 - add knowledge base export/import round-trip as JSON  

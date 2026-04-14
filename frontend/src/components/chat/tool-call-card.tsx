@@ -18,9 +18,13 @@ const TOOL_CONFIG: Record<
   { label: string; icon: typeof Search }
 > = {
   get_authors_and_books: { label: "Авторлар мен кітаптар", icon: Users },
-  get_book_details: { label: "Кітап мәліметтері", icon: BookOpen },
-  get_author_works: { label: "Автор шығармалары", icon: Users },
-  get_work_content: { label: "Шығарма мәтіні", icon: FileText },
+  get_book_details:      { label: "Кітап мәліметтері",     icon: BookOpen },
+  get_author_works:      { label: "Автор шығармалары",     icon: Users },
+  get_work_content:      { label: "Шығарма мәтіні",        icon: FileText },
+  search_catalog:        { label: "Каталогта іздеу",       icon: Search },
+  search_pages:          { label: "Беттерде іздеу",        icon: Search },
+  get_page_window:       { label: "Бет мазмұны",           icon: FileText },
+  search_terms:          { label: "Пәнсөздерін іздеу",     icon: BookOpen },
 };
 
 function formatArgs(args: string): string {
