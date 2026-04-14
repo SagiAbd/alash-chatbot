@@ -53,7 +53,7 @@ export async function fetchApi(fullUrl: string, options: FetchOptions = {}) {
     if (response.status === 401) {
       if (typeof window !== 'undefined') {
         localStorage.removeItem('token');
-        window.location.href = '/login';
+        window.location.href = '/admin/login';
       }
       throw new ApiError(401, 'Unauthorized - Please log in again');
     }

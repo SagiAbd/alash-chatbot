@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Book, MessageSquare, LogOut, Menu } from "lucide-react";
 import Breadcrumb from "@/components/ui/breadcrumb";
+import { api } from "@/lib/api";
 
 export default function DashboardLayout({
   children,
@@ -14,23 +15,41 @@ export default function DashboardLayout({
   const router = useRouter();
   const pathname = usePathname();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      router.push("/login");
-    }
+    const checkSession = async () => {
+      const token = localStorage.getItem("token");
+      if (!token) {
+        router.push("/admin/login");
+        return;
+      }
+
+      try {
+        await api.post("/api/auth/test-token");
+        setIsCheckingSession(false);
+      } catch {
+        localStorage.removeItem("token");
+        router.push("/admin/login");
+      }
+    };
+
+    void checkSession();
   }, [router]);
 
   const handleLogout = () => {
     localStorage.removeItem("token");
-    router.push("/login");
+    router.push("/admin/login");
   };
 
   const navigation = [
-    { name: "Knowledge Base", href: "/dashboard/knowledge", icon: Book },
-    { name: "Chat", href: "/dashboard/chat", icon: MessageSquare },
+    { name: "Knowledge Base", href: "/admin/knowledge", icon: Book },
+    { name: "Chat", href: "/admin/chat", icon: MessageSquare },
   ];
+
+  if (isCheckingSession) {
+    return <div className="min-h-screen bg-background" />;
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -54,7 +73,7 @@ export default function DashboardLayout({
           {/* Sidebar header */}
           <div className="flex h-16 items-center border-b pl-8">
             <Link
-              href="/dashboard"
+              href="/admin"
               className="flex items-center text-lg font-semibold hover:text-primary transition-colors"
             >
               <img
@@ -62,7 +81,7 @@ export default function DashboardLayout({
                 alt="Logo"
                 className="w-16 h-16 rounded-lg"
               />
-              RAG Web UI
+              Alash Chatbot
             </Link>
           </div>
 
@@ -124,18 +143,13 @@ export const dashboardConfig = {
   sidebarNav: [
     {
       title: "Knowledge Base",
-      href: "/dashboard/knowledge",
+      href: "/admin/knowledge",
       icon: "database",
     },
     {
       title: "Chat",
-      href: "/dashboard/chat",
+      href: "/admin/chat",
       icon: "messageSquare",
-    },
-    {
-      title: "API Keys",
-      href: "/dashboard/api-keys",
-      icon: "key",
     },
   ],
 };

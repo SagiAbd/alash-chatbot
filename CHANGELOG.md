@@ -14,6 +14,7 @@
 
 ### Added
 - Added DB-backed app settings, a public chatbot KB selector, runtime-configurable public welcome text/provider/model fields, and dedicated unauthenticated public chat/config API endpoints
+- Added a frontend route split with public `/` and `/chat` pages, admin routes under `/admin/...`, legacy redirects from `/login`, `/register`, and `/dashboard/...`, and a normal `Login` entry on the public site
 
 ## [2026-04-05]
 

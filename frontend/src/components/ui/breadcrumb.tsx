@@ -35,7 +35,7 @@ const Breadcrumb = () => {
   return (
     <nav className="flex items-center space-x-2 text-base text-muted-foreground mb-6">
       <Link
-        href="/dashboard"
+        href="/admin"
         className="flex items-center hover:text-foreground transition-colors"
       >
         <Home className="h-4 w-4" />
