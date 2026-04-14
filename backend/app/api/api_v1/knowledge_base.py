@@ -958,23 +958,35 @@ async def get_document_chunks(
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    chunks = (
-        db.query(DocumentChunk)
-        .filter(
-            DocumentChunk.document_id == doc_id,
-            DocumentChunk.chunk_type == "work",
-        )
-        .all()
-    )
-    if not chunks:
+    is_glossary = isinstance(document.analysis, dict) and document.analysis.get("type") == "glossary"
+
+    if is_glossary:
         chunks = (
             db.query(DocumentChunk)
             .filter(
                 DocumentChunk.document_id == doc_id,
-                DocumentChunk.chunk_type.is_(None),
+                DocumentChunk.chunk_type == "term",
             )
             .all()
         )
+    else:
+        chunks = (
+            db.query(DocumentChunk)
+            .filter(
+                DocumentChunk.document_id == doc_id,
+                DocumentChunk.chunk_type == "work",
+            )
+            .all()
+        )
+        if not chunks:
+            chunks = (
+                db.query(DocumentChunk)
+                .filter(
+                    DocumentChunk.document_id == doc_id,
+                    DocumentChunk.chunk_type.is_(None),
+                )
+                .all()
+            )
 
     chunks.sort(
         key=lambda chunk: (

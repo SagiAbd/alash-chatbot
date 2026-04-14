@@ -31,6 +31,7 @@ interface ProcessingTask {
 }
 
 interface BookAnalysis {
+  type?: undefined;
   summary: string;
   metadata: {
     book_title: string;
@@ -42,6 +43,15 @@ interface BookAnalysis {
   works: Array<{ title: string; start_page: number; end_page: number }>;
 }
 
+interface GlossaryAnalysis {
+  type: "glossary";
+  term_count: number;
+  authors: string[];
+  fields: string[];
+}
+
+type DocumentAnalysis = BookAnalysis | GlossaryAnalysis | null;
+
 interface Document {
   id: number;
   file_name: string;
@@ -50,7 +60,7 @@ interface Document {
   content_type: string;
   created_at: string;
   processing_tasks: ProcessingTask[];
-  analysis: BookAnalysis | null;
+  analysis: DocumentAnalysis;
 }
 
 interface PendingTask {
@@ -64,6 +74,7 @@ interface PendingTask {
 interface Chunk {
   id: string;
   chunk_metadata: {
+    // book chunks
     page_content?: string;
     work_title?: string;
     main_author?: string;
@@ -71,6 +82,14 @@ interface Chunk {
     start_page?: number;
     end_page?: number;
     section_type?: string;
+    // term chunks
+    chunk_type?: string;
+    alash_term?: string;
+    modern_term?: string;
+    field?: string;
+    author?: string;
+    modern_definition?: string;
+    context?: string;
     [key: string]: unknown;
   };
 }
@@ -86,7 +105,7 @@ interface Row {
   created_at: string | null;
   status: string;
   error_message: string | null;
-  analysis: BookAnalysis | null;
+  analysis: DocumentAnalysis;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -95,18 +114,25 @@ function isActive(status: string) {
   return status === "pending" || status === "processing";
 }
 
-function displayName(file_name: string, analysis: BookAnalysis | null): string {
-  const author = analysis?.metadata?.main_author?.trim();
-  const title = analysis?.metadata?.book_title?.trim();
+function isGlossary(analysis: DocumentAnalysis): analysis is GlossaryAnalysis {
+  return (analysis as GlossaryAnalysis)?.type === "glossary";
+}
+
+function displayName(file_name: string, analysis: DocumentAnalysis): string {
+  if (isGlossary(analysis)) return file_name.replace(/\.xlsx$/i, "");
+  const bookAnalysis = analysis as BookAnalysis | null;
+  const author = bookAnalysis?.metadata?.main_author?.trim();
+  const title = bookAnalysis?.metadata?.book_title?.trim();
   if (author && title) return `${author} — ${title}`;
   if (title) return title;
   return file_name;
 }
 
 function fileIcon(contentType: string | null, fileName: string) {
-  const ext = fileName.split(".").pop() ?? "";
-  if (contentType?.includes("pdf")) return <FileIcon extension="pdf" {...defaultStyles.pdf} />;
-  if (contentType?.includes("doc")) return <FileIcon extension="doc" {...defaultStyles.docx} />;
+  const ext = (fileName.split(".").pop() ?? "").toLowerCase();
+  if (contentType?.includes("pdf") || ext === "pdf") return <FileIcon extension="pdf" {...defaultStyles.pdf} />;
+  if (contentType?.includes("doc") || ext === "docx") return <FileIcon extension="docx" {...defaultStyles.docx} />;
+  if (ext === "xlsx") return <FileIcon extension="xlsx" {...defaultStyles.xlsx} />;
   return <FileIcon extension={ext} color="#E2E8F0" labelColor="#94A3B8" />;
 }
 
@@ -180,6 +206,39 @@ function WorkChunk({ chunk, idx }: { chunk: Chunk; idx: number }) {
         <p className="whitespace-pre-wrap leading-relaxed text-muted-foreground mt-2 pl-4">
           {chunk.chunk_metadata.page_content ?? ""}
         </p>
+      )}
+    </div>
+  );
+}
+
+function TermChunk({ chunk, idx }: { chunk: Chunk; idx: number }) {
+  const [open, setOpen] = useState(false);
+  const m = chunk.chunk_metadata;
+  const label = m.alash_term || `Term ${idx + 1}`;
+
+  return (
+    <div className="py-2">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-baseline justify-between gap-4 w-full text-left hover:text-foreground transition-colors"
+      >
+        <span className="min-w-0 flex-1 font-medium flex items-center gap-1">
+          {open ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
+          {label}
+          {m.modern_term && m.modern_term !== label && (
+            <span className="text-muted-foreground font-normal ml-1">/ {m.modern_term}</span>
+          )}
+        </span>
+        {m.field && (
+          <span className="text-xs text-muted-foreground whitespace-nowrap">{m.field}</span>
+        )}
+      </button>
+      {open && (
+        <div className="mt-2 pl-4 space-y-1 text-muted-foreground">
+          {m.author && <p><span className="font-medium text-foreground">Автор:</span> {m.author}</p>}
+          {m.alash_definition && <p><span className="font-medium text-foreground">Анықтама:</span> {m.alash_definition}</p>}
+          {m.context && <p><span className="font-medium text-foreground">Контекст:</span> {m.context}</p>}
+        </div>
       )}
     </div>
   );
@@ -309,8 +368,9 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
     }
   };
 
-  const tocEntry = modal?.row.analysis?.toc ?? null;
-  const tocItems = [...(tocEntry ? [tocEntry] : []), ...(modal?.row.analysis?.works ?? [])];
+  const bookAnalysis = modal && !isGlossary(modal.row.analysis) ? (modal.row.analysis as BookAnalysis | null) : null;
+  const tocEntry = bookAnalysis?.toc ?? null;
+  const tocItems = [...(tocEntry ? [tocEntry] : []), ...(bookAnalysis?.works ?? [])];
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -402,7 +462,7 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
                         size="icon"
                         className="h-8 w-8"
                         onClick={() => openModal(row)}
-                        title="View book content"
+                        title={isGlossary(row.analysis) ? "View glossary terms" : "View book content"}
                       >
                         {modalLoading ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
@@ -433,68 +493,92 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
         </TableBody>
       </Table>
 
-      {/* Book content modal */}
+      {/* Document content modal */}
       <Dialog open={modal !== null} onOpenChange={(open) => !open && setModal(null)}>
         <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
-          <DialogHeader className="pb-2">
-            {modal?.row.analysis?.metadata.main_author && (
-              <p className="text-sm text-muted-foreground font-medium uppercase tracking-wide">
-                {modal.row.analysis.metadata.main_author}
-              </p>
-            )}
-            <DialogTitle className="text-xl leading-tight">
-              {modal?.row.analysis?.metadata.book_title || modal?.row.display_name}
-            </DialogTitle>
-            {(modal?.row.analysis?.metadata.year || modal?.row.analysis?.metadata.publisher) && (
-              <p className="text-sm text-muted-foreground">
-                {[modal.row.analysis?.metadata.year, modal.row.analysis?.metadata.publisher]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </p>
-            )}
-          </DialogHeader>
-
-          <div className="overflow-y-auto flex-1 space-y-6 pr-1 text-sm">
-            {/* Summary */}
-            {modal?.row.analysis?.summary && (
-              <Section title="Summary">
-                <p className="leading-relaxed">{modal.row.analysis.summary}</p>
-              </Section>
-            )}
-
-            {/* Table of contents */}
-            {tocItems.length > 0 && (
-              <Section title={`Table of Contents (${tocItems.length} items)`}>
-                <ol className="space-y-1">
-                  {tocItems.map((w, i) => (
-                    <li key={i} className="flex justify-between gap-4">
-                      <span className="text-foreground">{w.title}</span>
-                      <span className="text-muted-foreground whitespace-nowrap text-xs mt-0.5">
-                        pp. {w.start_page}–{w.end_page}
-                      </span>
-                    </li>
-                  ))}
-                </ol>
-              </Section>
-            )}
-
-            {/* Works content */}
-            {modal && modal.chunks.length > 0 && (
-              <Section title={`Sections (${modal.chunks.length})`} defaultOpen={false}>
-                <div className="divide-y">
-                  {[...modal.chunks]
-                    .sort((a, b) => (a.chunk_metadata.start_page ?? 0) - (b.chunk_metadata.start_page ?? 0))
-                    .map((chunk, idx) => (
-                      <WorkChunk key={chunk.id} chunk={chunk} idx={idx} />
-                    ))}
-                </div>
-              </Section>
-            )}
-
-            {modal && modal.chunks.length === 0 && (
-              <p className="text-muted-foreground text-center py-4">No content available.</p>
-            )}
-          </div>
+          {modal && isGlossary(modal.row.analysis) ? (
+            // ── Glossary view ──────────────────────────────────────────────
+            <>
+              <DialogHeader className="pb-2">
+                <DialogTitle className="text-xl leading-tight">{modal.row.display_name}</DialogTitle>
+                <p className="text-sm text-muted-foreground">
+                  {modal.row.analysis.term_count} terms
+                  {modal.row.analysis.fields.length > 0 && ` · ${modal.row.analysis.fields.slice(0, 4).join(", ")}`}
+                </p>
+              </DialogHeader>
+              <div className="overflow-y-auto flex-1 pr-1 text-sm">
+                {modal.chunks.length > 0 ? (
+                  <Section title={`Terms (${modal.chunks.length})`}>
+                    <div className="divide-y">
+                      {modal.chunks.map((chunk, idx) => (
+                        <TermChunk key={chunk.id} chunk={chunk} idx={idx} />
+                      ))}
+                    </div>
+                  </Section>
+                ) : (
+                  <p className="text-muted-foreground text-center py-4">No terms available.</p>
+                )}
+              </div>
+            </>
+          ) : (
+            // ── Book view ──────────────────────────────────────────────────
+            <>
+              <DialogHeader className="pb-2">
+                {(modal?.row.analysis as BookAnalysis | null)?.metadata?.main_author && (
+                  <p className="text-sm text-muted-foreground font-medium uppercase tracking-wide">
+                    {(modal!.row.analysis as BookAnalysis).metadata.main_author}
+                  </p>
+                )}
+                <DialogTitle className="text-xl leading-tight">
+                  {(modal?.row.analysis as BookAnalysis | null)?.metadata?.book_title || modal?.row.display_name}
+                </DialogTitle>
+                {((modal?.row.analysis as BookAnalysis | null)?.metadata?.year ||
+                  (modal?.row.analysis as BookAnalysis | null)?.metadata?.publisher) && (
+                  <p className="text-sm text-muted-foreground">
+                    {[(modal!.row.analysis as BookAnalysis).metadata.year,
+                      (modal!.row.analysis as BookAnalysis).metadata.publisher]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                )}
+              </DialogHeader>
+              <div className="overflow-y-auto flex-1 space-y-6 pr-1 text-sm">
+                {(modal?.row.analysis as BookAnalysis | null)?.summary && (
+                  <Section title="Summary">
+                    <p className="leading-relaxed">{(modal!.row.analysis as BookAnalysis).summary}</p>
+                  </Section>
+                )}
+                {tocItems.length > 0 && (
+                  <Section title={`Table of Contents (${tocItems.length} items)`}>
+                    <ol className="space-y-1">
+                      {tocItems.map((w, i) => (
+                        <li key={i} className="flex justify-between gap-4">
+                          <span className="text-foreground">{w.title}</span>
+                          <span className="text-muted-foreground whitespace-nowrap text-xs mt-0.5">
+                            pp. {w.start_page}–{w.end_page}
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                  </Section>
+                )}
+                {modal && modal.chunks.length > 0 && (
+                  <Section title={`Sections (${modal.chunks.length})`} defaultOpen={false}>
+                    <div className="divide-y">
+                      {[...modal.chunks]
+                        .sort((a, b) => (a.chunk_metadata.start_page ?? 0) - (b.chunk_metadata.start_page ?? 0))
+                        .map((chunk, idx) => (
+                          <WorkChunk key={chunk.id} chunk={chunk} idx={idx} />
+                        ))}
+                    </div>
+                  </Section>
+                )}
+                {modal && modal.chunks.length === 0 && (
+                  <p className="text-muted-foreground text-center py-4">No content available.</p>
+                )}
+              </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </>
