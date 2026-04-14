@@ -4,17 +4,19 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 
 ### Todo
 
-- add support for ocr pages folder upload and filling with llm ocr the missing pages. Export kb will turn into .zip  
 - add agent steps calling animation  
 - add glossary tool (fuzzy search over terms database)  
+- fix kb upload duplicates  
+- deploy  
+- set admin and avg user permissions  
 
 ### In Progress
 
-- enforce deeper work-level reading before broad author-study answers  
 - fix bugs in kb upload  
 
 ### Done
 
+- enforce deeper work-level reading before broad author-study answers  
 - make TOC validation LLM-only and fail explicitly when TOC detection is unreliable  
 - add knowledge base export/import round-trip as JSON  
 - improve llm answer style to docs style and kazakhi  

@@ -4,7 +4,6 @@ from fastapi import FastAPI
 from langchain.globals import set_debug, set_verbose
 
 from app.api.api_v1.api import api_router
-from app.api.openapi.api import router as openapi_router
 from app.core.config import settings
 from app.core.minio import init_minio
 from app.startup.migarate import DatabaseMigrator
@@ -28,7 +27,6 @@ app = FastAPI(
 
 # Include routers
 app.include_router(api_router, prefix=settings.API_V1_STR)
-app.include_router(openapi_router, prefix="/openapi")
 
 
 @app.on_event("startup")
