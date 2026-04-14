@@ -3,6 +3,7 @@
 ## [2026-04-14]
 
 ### Fixed
+- Restored a no-op Alembic compatibility revision for deleted migration `c1d2e3f4a5b6` so existing Docker/MySQL databases that were already stamped with that revision can start successfully again
 - Replaced direct `crypto.randomUUID()` usage in KB upload UIs with a browser-safe client file ID helper so uploads still work in runtimes without that Web Crypto method
 - Hardened knowledge-base uploads against duplicate content, duplicate file names, and duplicate task creation by returning per-file upload results, reusing existing identical documents, and refusing conflicting same-name uploads before processing
 - Stopped the knowledge-base document list from briefly showing the same upload twice by merging pending tasks with processed documents via `document_id` and by preferring the latest processing-task status
