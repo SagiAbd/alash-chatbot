@@ -127,6 +127,7 @@ export function DocumentUploadSteps({
       "text/plain": [".txt"],
       "text/markdown": [".md"],
       "application/json": [".json"],
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
     },
   });
 
@@ -410,7 +411,7 @@ export function DocumentUploadSteps({
                   Drop your files here or click to browse
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Supports PDF, DOCX, TXT, MD, and JSON files
+                  Supports PDF, DOCX, TXT, MD, JSON, and XLSX files
                 </p>
               </div>
               {files.length > 0 && (
