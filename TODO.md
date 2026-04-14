@@ -10,6 +10,9 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 
 ### In Progress
 
+- public + admin deployment split
+- add public kazakh landing page and public chat
+- add admin-only access, settings, and public chatbot kb selection
 
 ### Done
 
