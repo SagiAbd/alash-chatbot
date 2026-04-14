@@ -16,6 +16,7 @@
 - Added DB-backed app settings, a public chatbot KB selector, runtime-configurable public welcome text/provider/model fields, and dedicated unauthenticated public chat/config API endpoints
 - Added a frontend route split with public `/` and `/chat` pages, admin routes under `/admin/...`, legacy redirects from `/login`, `/register`, and `/dashboard/...`, and a normal `Login` entry on the public site
 - Added an admin settings page plus a knowledge-base action to mark exactly one KB as the active public chatbot knowledge base from the existing dashboard UI
+- Added `backend/scripts/bootstrap_admin.py` to create or update the initial admin account now that public self-registration is disabled
 
 ## [2026-04-05]
 
