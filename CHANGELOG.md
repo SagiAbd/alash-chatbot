@@ -6,6 +6,7 @@
 - Restored a no-op Alembic compatibility revision for deleted migration `c1d2e3f4a5b6` so existing Docker/MySQL databases that were already stamped with that revision can start successfully again
 - Made the `d4e5f6a7b8c9` app-settings/public-chat migration idempotent so Docker deployments recover cleanly when `app_settings` or `chats.is_public` was already created during a previous partial migration run
 - Stopped the frontend API helper from redirecting away from the login page on `401` responses from `/api/auth/token`, so invalid credentials and permission errors remain visible to the user
+- Removed the MySQL `mysql_native_password` override from both Docker Compose files so new deployments use MySQL 8’s default auth setup instead of a legacy plugin path
 - Restricted the authenticated product flow to admins by disabling public registration, requiring `is_superuser` for login, and enforcing admin-only checks on chat and knowledge-base API routes
 - Replaced direct `crypto.randomUUID()` usage in KB upload UIs with a browser-safe client file ID helper so uploads still work in runtimes without that Web Crypto method
 - Hardened knowledge-base uploads against duplicate content, duplicate file names, and duplicate task creation by returning per-file upload results, reusing existing identical documents, and refusing conflicting same-name uploads before processing
