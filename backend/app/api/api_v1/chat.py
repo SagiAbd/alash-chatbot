@@ -13,7 +13,7 @@ from app.schemas.chat import (
     MessageCreate,
     MessageResponse,
 )
-from app.core.security import get_current_user
+from app.core.security import get_current_admin
 from app.services.chat_service import generate_response
 
 router = APIRouter()
@@ -24,14 +24,13 @@ def create_chat(
     *,
     db: Session = Depends(get_db),
     chat_in: ChatCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin),
 ) -> Any:
-    # Verify knowledge bases exist and belong to user
+    # Verify knowledge bases exist for admin use
     knowledge_bases = (
         db.query(KnowledgeBase)
         .filter(
             KnowledgeBase.id.in_(chat_in.knowledge_base_ids),
-            KnowledgeBase.user_id == current_user.id,
         )
         .all()
     )
@@ -55,7 +54,7 @@ def create_chat(
 @router.get("/", response_model=List[ChatResponse])
 def get_chats(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin),
     skip: int = 0,
     limit: int = 100,
 ) -> Any:
@@ -74,7 +73,7 @@ def get_chat(
     *,
     db: Session = Depends(get_db),
     chat_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin),
 ) -> Any:
     chat = (
         db.query(Chat)
@@ -92,7 +91,7 @@ async def create_message(
     db: Session = Depends(get_db),
     chat_id: int,
     messages: dict,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin),
 ) -> StreamingResponse:
     chat = (
         db.query(Chat)
@@ -133,7 +132,7 @@ def delete_chat(
     *,
     db: Session = Depends(get_db),
     chat_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin),
 ) -> Any:
     chat = (
         db.query(Chat)

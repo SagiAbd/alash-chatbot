@@ -1,13 +1,13 @@
 from datetime import timedelta
 from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from requests.exceptions import RequestException
 
 from app.core import security
-from app.core.security import get_current_user
 from app.core.config import settings
+from app.core.security import get_current_admin
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.token import Token
@@ -21,38 +21,11 @@ def register(*, db: Session = Depends(get_db), user_in: UserCreate) -> Any:
     """
     Register a new user.
     """
-    try:
-        # Check if user with this email exists
-        user = db.query(User).filter(User.email == user_in.email).first()
-        if user:
-            raise HTTPException(
-                status_code=400,
-                detail="A user with this email already exists.",
-            )
-
-        # Check if user with this username exists
-        user = db.query(User).filter(User.username == user_in.username).first()
-        if user:
-            raise HTTPException(
-                status_code=400,
-                detail="A user with this username already exists.",
-            )
-
-        # Create new user
-        user = User(
-            email=user_in.email,
-            username=user_in.username,
-            hashed_password=security.get_password_hash(user_in.password),
-        )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-        return user
-    except RequestException as e:
-        raise HTTPException(
-            status_code=503,
-            detail="Network error or server is unreachable. Please try again later.",
-        ) from e
+    del db, user_in
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Public registration is disabled. Ask an administrator to seed access.",
+    )
 
 
 @router.post("/token", response_model=Token)
@@ -77,6 +50,11 @@ def login_access_token(
             detail="Inactive user",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    elif not user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
 
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = security.create_access_token(
@@ -86,7 +64,7 @@ def login_access_token(
 
 
 @router.post("/test-token", response_model=UserResponse)
-def test_token(current_user: User = Depends(get_current_user)) -> Any:
+def test_token(current_user: User = Depends(get_current_admin)) -> Any:
     """
     Test access token by getting current user.
     """

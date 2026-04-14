@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
 from app.core.minio import get_minio_client
-from app.core.security import get_current_user
+from app.core.security import get_current_admin
 from app.db.session import get_db
 from app.models.knowledge import (
     Document,
@@ -87,12 +87,9 @@ def _cleanup_minio_object(object_name: str) -> None:
 def _get_knowledge_base_for_user(
     db: Session, kb_id: int, user_id: int
 ) -> KnowledgeBase | None:
-    """Return a knowledge base owned by the given user."""
-    return (
-        db.query(KnowledgeBase)
-        .filter(KnowledgeBase.id == kb_id, KnowledgeBase.user_id == user_id)
-        .first()
-    )
+    """Return a knowledge base by ID for admin access."""
+    del user_id
+    return db.query(KnowledgeBase).filter(KnowledgeBase.id == kb_id).first()
 
 
 def _read_minio_object_bytes(object_name: str) -> bytes:
@@ -241,7 +238,7 @@ def create_knowledge_base(
     *,
     db: Session = Depends(get_db),
     kb_in: KnowledgeBaseCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin),
 ) -> Any:
     """
     Create new knowledge base.
@@ -261,7 +258,7 @@ async def import_knowledge_base(
     *,
     db: Session = Depends(get_db),
     file: UploadFile,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin),
 ) -> Any:
     """
     Import a knowledge base from a JSON export file.
@@ -397,20 +394,15 @@ async def import_knowledge_base(
 @router.get("", response_model=List[KnowledgeBaseResponse])
 def get_knowledge_bases(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin),
     skip: int = 0,
     limit: int = 100,
 ) -> Any:
     """
     Retrieve knowledge bases.
     """
-    knowledge_bases = (
-        db.query(KnowledgeBase)
-        .filter(KnowledgeBase.user_id == current_user.id)
-        .offset(skip)
-        .limit(limit)
-        .all()
-    )
+    del current_user
+    knowledge_bases = db.query(KnowledgeBase).offset(skip).limit(limit).all()
     return knowledge_bases
 
 
@@ -419,7 +411,7 @@ def get_knowledge_base(
     *,
     db: Session = Depends(get_db),
     kb_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin),
 ) -> Any:
     """
     Get knowledge base by ID.
@@ -431,7 +423,7 @@ def get_knowledge_base(
         .options(
             joinedload(KnowledgeBase.documents).joinedload(Document.processing_tasks)
         )
-        .filter(KnowledgeBase.id == kb_id, KnowledgeBase.user_id == current_user.id)
+        .filter(KnowledgeBase.id == kb_id)
         .first()
     )
 
@@ -446,7 +438,7 @@ def export_knowledge_base(
     *,
     db: Session = Depends(get_db),
     kb_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin),
 ) -> Any:
     """
     Export a knowledge base to a portable JSON snapshot.
@@ -456,7 +448,7 @@ def export_knowledge_base(
         .options(
             selectinload(KnowledgeBase.documents).selectinload(Document.chunks)
         )
-        .filter(KnowledgeBase.id == kb_id, KnowledgeBase.user_id == current_user.id)
+        .filter(KnowledgeBase.id == kb_id)
         .first()
     )
     if not kb:
@@ -477,14 +469,14 @@ def update_knowledge_base(
     db: Session = Depends(get_db),
     kb_id: int,
     kb_in: KnowledgeBaseUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin),
 ) -> Any:
     """
     Update knowledge base.
     """
     kb = (
         db.query(KnowledgeBase)
-        .filter(KnowledgeBase.id == kb_id, KnowledgeBase.user_id == current_user.id)
+        .filter(KnowledgeBase.id == kb_id)
         .first()
     )
 
@@ -506,7 +498,7 @@ async def delete_knowledge_base(
     *,
     db: Session = Depends(get_db),
     kb_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin),
 ) -> Any:
     """
     Delete knowledge base and all associated resources.
@@ -564,7 +556,7 @@ async def upload_kb_documents(
     kb_id: int,
     files: List[UploadFile],
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin),
 ):
     """
     Upload multiple documents to MinIO.
@@ -744,7 +736,7 @@ async def process_kb_documents(
     upload_results: List[dict],
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin),
 ):
     """
     Process multiple documents asynchronously.
@@ -853,7 +845,7 @@ async def add_processing_tasks_to_queue(task_data, kb_id):
 
 @router.post("/cleanup")
 async def cleanup_temp_files(
-    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_admin)
 ):
     """
     Clean up expired temporary files.
@@ -883,7 +875,7 @@ async def cleanup_temp_files(
 async def get_kb_tasks(
     kb_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin),
 ) -> Any:
     """
     Get all non-completed and failed processing tasks for a knowledge base.
@@ -925,7 +917,7 @@ async def cancel_processing_task(
     db: Session = Depends(get_db),
     kb_id: int,
     task_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin),
 ) -> Any:
     """
     Cancel a pending or processing task.
@@ -941,7 +933,6 @@ async def cancel_processing_task(
         .filter(
             ProcessingTask.id == task_id,
             ProcessingTask.knowledge_base_id == kb_id,
-            KnowledgeBase.user_id == current_user.id,
         )
         .first()
     )
@@ -971,7 +962,7 @@ async def get_processing_tasks(
         ..., description="Comma-separated list of task IDs to check status for"
     ),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin),
 ):
     """
     Get status of multiple processing tasks.
@@ -1013,7 +1004,7 @@ async def get_document(
     db: Session = Depends(get_db),
     kb_id: int,
     doc_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin),
 ) -> Any:
     """
     Get document details by ID.
@@ -1024,7 +1015,6 @@ async def get_document(
         .filter(
             Document.id == doc_id,
             Document.knowledge_base_id == kb_id,
-            KnowledgeBase.user_id == current_user.id,
         )
         .first()
     )
@@ -1041,7 +1031,7 @@ async def delete_document(
     db: Session = Depends(get_db),
     kb_id: int,
     doc_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin),
 ) -> Any:
     """
     Delete a single document and all associated resources.
@@ -1055,7 +1045,6 @@ async def delete_document(
         .filter(
             Document.id == doc_id,
             Document.knowledge_base_id == kb_id,
-            KnowledgeBase.user_id == current_user.id,
         )
         .first()
     )
@@ -1092,7 +1081,7 @@ async def get_document_chunks(
     db: Session = Depends(get_db),
     kb_id: int,
     doc_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin),
 ) -> Any:
     """
     Get stored chunks for a document.
@@ -1106,7 +1095,6 @@ async def get_document_chunks(
         .filter(
             Document.id == doc_id,
             Document.knowledge_base_id == kb_id,
-            KnowledgeBase.user_id == current_user.id,
         )
         .first()
     )
