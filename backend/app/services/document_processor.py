@@ -32,6 +32,7 @@ from app.services.book_indexer import (
     index_book,
     load_pages_from_json,
 )
+from app.services.xlsx_processor import parse_glossary_xlsx
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,138 @@ async def upload_document(file: UploadFile, kb_id: int) -> UploadResult:
 # ─── Background processing ────────────────────────────────────────────────────
 
 
+def _process_xlsx_document(
+    task: "ProcessingTask",
+    db: Session,
+    temp_path: str,
+    file_name: str,
+    kb_id: int,
+    minio_client: object,
+    local_temp_path: str,
+) -> None:
+    """Parse a glossary xlsx and store one DocumentChunk per term row.
+
+    Called by process_document_background when the file is a .xlsx.
+    Raises BookIndexingError on any failure so the caller can mark the task
+    as failed and clean up MinIO.
+    """
+    task_id = task.id
+
+    # 1. Download from MinIO
+    try:
+        minio_client.fget_object(
+            bucket_name=settings.MINIO_BUCKET_NAME,
+            object_name=temp_path,
+            file_path=local_temp_path,
+        )
+    except MinioException as exc:
+        raise BookIndexingError(f"Failed to download xlsx from MinIO: {exc}") from exc
+
+    # 2. Parse terms
+    terms = parse_glossary_xlsx(local_temp_path)
+    if not terms:
+        raise BookIndexingError(
+            "No terms found in the xlsx file. "
+            "Ensure it contains a header row with recognised Kazakh column names."
+        )
+
+    # 3. Move temp → permanent (UUID-based key already set)
+    temp_object_name = temp_path.split("/")[-1]
+    permanent_path = f"kb_{kb_id}/{temp_object_name}"
+    try:
+        from minio.commonconfig import CopySource
+
+        minio_client.copy_object(
+            bucket_name=settings.MINIO_BUCKET_NAME,
+            object_name=permanent_path,
+            source=CopySource(settings.MINIO_BUCKET_NAME, temp_path),
+        )
+        minio_client.remove_object(settings.MINIO_BUCKET_NAME, temp_path)
+    except MinioException as exc:
+        raise BookIndexingError(
+            f"Failed to move xlsx to permanent storage: {exc}"
+        ) from exc
+
+    # 4. Collect metadata summary for Document.analysis
+    authors = sorted({t.get("author", "") for t in terms if t.get("author")})
+    fields = sorted({t.get("field", "") for t in terms if t.get("field")})
+    analysis = {
+        "type": "glossary",
+        "term_count": len(terms),
+        "authors": authors,
+        "fields": fields,
+    }
+
+    # 5. Create Document record
+    document = Document(
+        file_name=file_name,
+        file_path=permanent_path,
+        file_hash=task.document_upload.file_hash,
+        file_size=task.document_upload.file_size,
+        content_type=task.document_upload.content_type,
+        knowledge_base_id=kb_id,
+        analysis=analysis,
+    )
+    db.add(document)
+    db.commit()
+    db.refresh(document)
+    logger.info(
+        "Task %d: Glossary document created (id=%d, %d terms)",
+        task_id,
+        document.id,
+        len(terms),
+    )
+
+    # 6. Store DocumentChunk records (one per term)
+    t0 = time.monotonic()
+    for i, term in enumerate(terms):
+        alash_term = term.get("alash_term", "")
+        chunk_id = hashlib.sha256(
+            f"term:{kb_id}:{document.id}:{alash_term}:{i}".encode()
+        ).hexdigest()
+
+        metadata = {
+            "kb_id": kb_id,
+            "document_id": document.id,
+            "chunk_id": chunk_id,
+            "chunk_type": "term",
+            **term,
+        }
+
+        db.add(
+            DocumentChunk(
+                id=chunk_id,
+                document_id=document.id,
+                kb_id=kb_id,
+                file_name=file_name,
+                chunk_type="term",
+                chunk_label=alash_term,
+                chunk_metadata=metadata,
+                hash=hashlib.sha256(term.get("page_content", "").encode()).hexdigest(),
+            )
+        )
+
+        if i > 0 and i % 200 == 0:
+            db.commit()
+
+    db.commit()
+    logger.info(
+        "Task %d: Stored %d term chunks in %.1fs",
+        task_id,
+        len(terms),
+        time.monotonic() - t0,
+    )
+
+    # 7. Mark completed
+    task.status = "completed"
+    task.document_id = document.id
+    upload = task.document_upload
+    if upload:
+        upload.status = "completed"
+    db.commit()
+    logger.info("Task %d: Glossary processing completed", task_id)
+
+
 def process_document_background(
     temp_path: str,
     file_name: str,
@@ -137,8 +270,16 @@ def process_document_background(
         task.status = "processing"
         db.commit()
 
-        # 1. Download from MinIO
         minio_client = get_minio_client()
+
+        # Route xlsx files to the glossary processor
+        if file_name.lower().endswith(".xlsx"):
+            _process_xlsx_document(
+                task, db, temp_path, file_name, kb_id, minio_client, local_temp_path
+            )
+            return
+
+        # 1. Download from MinIO
         try:
             minio_client.fget_object(
                 bucket_name=settings.MINIO_BUCKET_NAME,

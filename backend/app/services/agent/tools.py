@@ -187,6 +187,8 @@ def build_kb_index(
 
     for doc in documents:
         analysis = doc.analysis or {}
+        if analysis.get("type") == "glossary":
+            continue  # glossary xlsx docs are searched via search_terms, not the book index
         metadata = analysis.get("metadata", {})
         author_name = metadata.get("main_author", "").strip() or "Белгісіз автор"
         book_title = metadata.get("book_title", "") or doc.file_name
@@ -741,6 +743,108 @@ def create_tools(db: Session, knowledge_base_ids: List[int]) -> list:
 
         return "\n".join(lines)
 
+    @tool
+    async def search_terms(
+        query: str,
+        author: str = "",
+        field: str = "",
+        limit: int = 8,
+    ) -> str:
+        """Search the Alash-era scientific term glossary using fuzzy matching.
+
+        This tool searches a structured glossary of Alash-period scientific terms
+        extracted from historical books. It is supplemental — use it to find
+        how a term was used or defined by a specific figure, not as a primary
+        source for definitive factual claims.
+
+        Useful for questions like:
+        - What did [author] say about [term]?
+        - What is the Alash-era equivalent of [modern term]?
+        - What terms are used in the field of [domain]?
+
+        Args:
+            query: Term name, concept, or phrase to search for.
+            author: Optional author name to narrow results (partial match).
+            field: Optional academic domain to narrow results (partial match).
+            limit: Maximum number of results to return.
+        """
+        limit = _clamp_limit(limit)
+
+        term_chunks = (
+            db.query(DocumentChunk)
+            .filter(
+                DocumentChunk.kb_id.in_(knowledge_base_ids),
+                DocumentChunk.chunk_type == "term",
+            )
+            .all()
+        )
+
+        if not term_chunks:
+            return "Білім қорында терминдер глоссарийі жоқ."
+
+        results: list[tuple[int, dict]] = []
+
+        for chunk in term_chunks:
+            meta = chunk.chunk_metadata or {}
+            chunk_author = meta.get("author", "")
+            chunk_field = meta.get("field", "")
+            alash_term = meta.get("alash_term", "") or chunk.chunk_label or ""
+            modern_term = meta.get("modern_term", "")
+            context = meta.get("context", "")
+            page_content = meta.get("page_content", "")
+
+            if author and not _score_match(author, [chunk_author]):
+                continue
+            if field and not _score_match(field, [chunk_field]):
+                continue
+
+            score = _score_match(
+                query,
+                [alash_term, modern_term],
+                [chunk_field, chunk_author, context, page_content],
+            )
+            if score <= 0:
+                continue
+
+            results.append((score, meta))
+
+        if not results:
+            return f'Терминдер глоссарийінде сәйкестік табылмады: "{query}".'
+
+        lines = [
+            f'Термин іздеуі: "{query}"',
+            "(Ескерту: глоссарий деректері — қосымша ақпарат көзі, "
+            "маңызды тұстарды негізгі мәтіндермен тексеріңіз)",
+            "",
+            "Үздік сәйкестіктер:",
+        ]
+
+        for rank, (_, meta) in enumerate(
+            sorted(results, key=lambda x: -x[0])[:limit], start=1
+        ):
+            alash = meta.get("alash_term") or "—"
+            modern = meta.get("modern_term", "")
+            author_str = meta.get("author", "")
+            field_str = meta.get("field", "")
+            modern_def = (meta.get("modern_definition") or "")[:200]
+            context_raw = meta.get("context") or ""
+            context_str = context_raw[:200]
+
+            entry = [f"{rank}. Алаш термині: {alash}"]
+            if modern:
+                entry.append(f"   Заманауи баламасы: {modern}")
+            if field_str:
+                entry.append(f"   Сала: {field_str}")
+            if author_str:
+                entry.append(f"   Автор: {author_str}")
+            if modern_def:
+                entry.append(f"   Анықтама: {modern_def}{'...' if len(meta.get('modern_definition') or '') > 200 else ''}")
+            if context_str:
+                entry.append(f"   Контекст: {context_str}{'...' if len(context_raw) > 200 else ''}")
+            lines.append("\n".join(entry))
+
+        return "\n\n".join(lines)
+
     return [
         search_catalog,
         get_authors_and_books,
@@ -749,4 +853,5 @@ def create_tools(db: Session, knowledge_base_ids: List[int]) -> list:
         get_work_content,
         search_pages,
         get_page_window,
+        search_terms,
     ]
