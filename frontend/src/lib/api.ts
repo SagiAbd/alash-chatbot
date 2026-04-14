@@ -49,8 +49,9 @@ export async function fetchApi(fullUrl: string, options: FetchOptions = {}) {
 
   try {
     const response = await fetch(fullUrl, config);
+    const isAuthLoginRequest = fullUrl === '/api/auth/token';
 
-    if (response.status === 401) {
+    if (response.status === 401 && !isAuthLoginRequest) {
       if (typeof window !== 'undefined') {
         localStorage.removeItem('token');
         window.location.href = '/admin/login';
