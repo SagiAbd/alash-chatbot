@@ -13,9 +13,11 @@ import {
 } from "lucide-react";
 import DashboardLayout from "@/components/layout/dashboard-layout";
 import { api, ApiError } from "@/lib/api";
+import { createClientFileId } from "@/lib/file-upload-id";
 import { useToast } from "@/components/ui/use-toast";
 
 interface FileStatus {
+  id: string;
   file: File;
   status:
     | "pending"
@@ -34,7 +36,7 @@ interface UploadResult {
   upload_id?: number;
   document_id?: number;
   file_name: string;
-  status: string;
+  status: "pending" | "exists" | "queued" | "conflict" | "error";
   skip_processing: boolean;
   message?: string;
 }
@@ -62,6 +64,7 @@ export default function UploadPage({ params }: { params: { id: string } }) {
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const newFiles = acceptedFiles.map((file) => ({
+      id: createClientFileId(file),
       file,
       status: "pending" as const,
     }));
@@ -92,22 +95,35 @@ export default function UploadPage({ params }: { params: { id: string } }) {
 
   const handleUpload = async (file: File) => {
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("files", file);
 
     try {
-      const result: UploadResult = await api.post(
+      const results = (await api.post(
         `/api/knowledge-base/${params.id}/documents/upload`,
         formData
-      );
+      )) as UploadResult[];
+      const result = results[0];
+      if (!result) {
+        throw new Error("Upload result missing");
+      }
 
       setFiles((prev) =>
         prev.map((f) =>
-          f.file.name === result.file_name
+          f.file === file
             ? {
                 ...f,
-                status: result.skip_processing ? "completed" : "uploaded",
+                status:
+                  result.status === "pending"
+                    ? "uploaded"
+                    : result.status === "conflict" || result.status === "error"
+                    ? "error"
+                    : "completed",
                 uploadId: result.upload_id,
                 documentId: result.document_id,
+                error:
+                  result.status === "conflict" || result.status === "error"
+                    ? result.message || "Upload failed"
+                    : undefined,
               }
             : f
         )
@@ -295,7 +311,7 @@ export default function UploadPage({ params }: { params: { id: string } }) {
             <div className="space-y-2 max-h-[400px] overflow-y-auto rounded-lg">
               {files.map((fileStatus) => (
                 <div
-                  key={fileStatus.file.name}
+                  key={fileStatus.id}
                   className="flex items-center justify-between p-4 rounded-lg border bg-card"
                 >
                   <div className="flex items-center space-x-4">

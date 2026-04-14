@@ -21,6 +21,7 @@ from fastapi import (
 from fastapi.responses import JSONResponse
 from minio.error import MinioException
 from pydantic import ValidationError
+from sqlalchemy import or_
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
@@ -50,6 +51,37 @@ from app.services.document_processor import process_document_background
 router = APIRouter()
 
 logger = logging.getLogger(__name__)
+
+
+def _build_upload_result(
+    *,
+    file_name: str,
+    status: str,
+    skip_processing: bool,
+    message: str | None = None,
+    upload_id: int | None = None,
+    document_id: int | None = None,
+    temp_path: str | None = None,
+) -> dict[str, Any]:
+    """Build a consistent upload response payload for one file."""
+    return {
+        "upload_id": upload_id,
+        "document_id": document_id,
+        "file_name": file_name,
+        "status": status,
+        "message": message,
+        "skip_processing": skip_processing,
+        "temp_path": temp_path,
+    }
+
+
+def _cleanup_minio_object(object_name: str) -> None:
+    """Delete a MinIO object best-effort."""
+    try:
+        minio_client = get_minio_client()
+        minio_client.remove_object(settings.MINIO_BUCKET_NAME, object_name)
+    except Exception:
+        logger.warning("Failed to clean up MinIO object %s", object_name)
 
 
 def _get_knowledge_base_for_user(
@@ -279,7 +311,11 @@ async def import_knowledge_base(
                         f"document '{exported_document.file_name}'"
                     ),
                 ) from exc
-            ext = exported_document.file_name.rsplit(".", 1)[-1] if "." in exported_document.file_name else ""
+            ext = (
+                exported_document.file_name.rsplit(".", 1)[-1]
+                if "." in exported_document.file_name
+                else ""
+            )
             unique_name = f"{uuid.uuid4().hex}.{ext}" if ext else uuid.uuid4().hex
             object_path = f"kb_{kb.id}/{unique_name}"
 
@@ -537,76 +573,166 @@ async def upload_kb_documents(
     if not kb:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
 
-    results = []
+    results: list[dict[str, Any]] = []
     for file in files:
-        # 1. 计算文件 hash
+        file_name = file.filename or "upload"
         file_content = await file.read()
-        file_hash = hashlib.sha256(file_content).hexdigest()
-
-        # 2. 检查是否存在完全相同的文件（名称和hash都相同）
-        existing_document = (
-            db.query(Document)
-            .filter(
-                Document.file_name == file.filename,
-                Document.file_hash == file_hash,
-                Document.knowledge_base_id == kb_id,
-            )
-            .first()
-        )
-
-        if existing_document:
-            # 完全相同的文件，直接返回
+        if not file_content:
             results.append(
-                {
-                    "document_id": existing_document.id,
-                    "file_name": existing_document.file_name,
-                    "status": "exists",
-                    "message": "文件已存在且已处理完成",
-                    "skip_processing": True,
-                }
+                _build_upload_result(
+                    file_name=file_name,
+                    status="error",
+                    skip_processing=True,
+                    message="File is empty.",
+                )
             )
             continue
 
-        # 3. 上传到临时目录
-        ext = file.filename.rsplit(".", 1)[-1] if "." in file.filename else ""
+        file_hash = hashlib.sha256(file_content).hexdigest()
+
+        existing_by_hash = (
+            db.query(Document)
+            .filter(
+                Document.knowledge_base_id == kb_id,
+                Document.file_hash == file_hash,
+            )
+            .first()
+        )
+        if existing_by_hash:
+            message = (
+                "An identical file is already available in this knowledge base."
+                if existing_by_hash.file_name == file_name
+                else (
+                    "An identical file is already available as "
+                    f"'{existing_by_hash.file_name}'."
+                )
+            )
+            results.append(
+                _build_upload_result(
+                    file_name=file_name,
+                    status="exists",
+                    skip_processing=True,
+                    document_id=existing_by_hash.id,
+                    message=message,
+                )
+            )
+            continue
+
+        existing_by_name = (
+            db.query(Document)
+            .filter(
+                Document.knowledge_base_id == kb_id,
+                Document.file_name == file_name,
+            )
+            .first()
+        )
+        if existing_by_name:
+            results.append(
+                _build_upload_result(
+                    file_name=file_name,
+                    status="conflict",
+                    skip_processing=True,
+                    document_id=existing_by_name.id,
+                    message=(
+                        "A different document with the same file name already "
+                        "exists. Rename the file before uploading."
+                    ),
+                )
+            )
+            continue
+
+        active_upload = (
+            db.query(DocumentUpload)
+            .filter(
+                DocumentUpload.knowledge_base_id == kb_id,
+                DocumentUpload.status.in_(["pending", "processing"]),
+                or_(
+                    DocumentUpload.file_hash == file_hash,
+                    DocumentUpload.file_name == file_name,
+                ),
+            )
+            .order_by(DocumentUpload.id.desc())
+            .first()
+        )
+        if active_upload:
+            same_content = active_upload.file_hash == file_hash
+            results.append(
+                _build_upload_result(
+                    file_name=file_name,
+                    status="queued" if same_content else "conflict",
+                    skip_processing=True,
+                    upload_id=active_upload.id,
+                    message=(
+                        "An identical file is already queued for processing."
+                        if same_content
+                        else (
+                            "A different file with the same name is already "
+                            "queued for processing."
+                        )
+                    ),
+                )
+            )
+            continue
+
+        ext = file_name.rsplit(".", 1)[-1] if "." in file_name else ""
         unique_name = f"{uuid.uuid4().hex}.{ext}" if ext else uuid.uuid4().hex
         temp_path = f"kb_{kb_id}/temp/{unique_name}"
-        await file.seek(0)
         try:
             minio_client = get_minio_client()
-            file_size = len(file_content)  # 使用之前读取的文件内容长度
             minio_client.put_object(
                 bucket_name=settings.MINIO_BUCKET_NAME,
                 object_name=temp_path,
-                data=file.file,
-                length=file_size,  # 指定文件大小
-                content_type=file.content_type,
+                data=BytesIO(file_content),
+                length=len(file_content),
+                content_type=file.content_type or "application/octet-stream",
             )
         except MinioException as e:
             logger.error(f"Failed to upload file to MinIO: {str(e)}")
-            raise HTTPException(status_code=500, detail="Failed to upload file")
+            results.append(
+                _build_upload_result(
+                    file_name=file_name,
+                    status="error",
+                    skip_processing=True,
+                    message="Failed to upload file to object storage.",
+                )
+            )
+            continue
 
-        # 4. 创建上传记录
         upload = DocumentUpload(
             knowledge_base_id=kb_id,
-            file_name=file.filename,
+            file_name=file_name,
             file_hash=file_hash,
             file_size=len(file_content),
-            content_type=file.content_type,
+            content_type=file.content_type or "application/octet-stream",
             temp_path=temp_path,
         )
         db.add(upload)
-        db.commit()
-        db.refresh(upload)
+        try:
+            db.commit()
+            db.refresh(upload)
+        except Exception as exc:
+            db.rollback()
+            logger.error("Failed to create upload record for %s: %s", file_name, exc)
+            _cleanup_minio_object(temp_path)
+            results.append(
+                _build_upload_result(
+                    file_name=file_name,
+                    status="error",
+                    skip_processing=True,
+                    message="Failed to persist the upload record.",
+                )
+            )
+            continue
 
         results.append(
-            {
-                "upload_id": upload.id,
-                "file_name": file.filename,
-                "temp_path": temp_path,
-                "status": "pending",
-                "skip_processing": False,
-            }
+            _build_upload_result(
+                file_name=file_name,
+                status="pending",
+                skip_processing=False,
+                upload_id=upload.id,
+                temp_path=temp_path,
+                message="File uploaded and ready for processing.",
+            )
         )
 
     return results
@@ -628,24 +754,52 @@ async def process_kb_documents(
     if not kb:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
 
-    task_info = []
-    upload_ids = []
+    task_info: list[dict[str, int]] = []
+    upload_ids: list[int] = []
+    seen_upload_ids: set[int] = set()
 
     for result in upload_results:
         if result.get("skip_processing"):
             continue
-        upload_ids.append(result["upload_id"])
+        upload_id = result.get("upload_id")
+        if not upload_id or upload_id in seen_upload_ids:
+            continue
+        seen_upload_ids.add(upload_id)
+        upload_ids.append(upload_id)
 
     if not upload_ids:
         return {"tasks": []}
 
-    uploads = db.query(DocumentUpload).filter(DocumentUpload.id.in_(upload_ids)).all()
+    uploads = (
+        db.query(DocumentUpload)
+        .filter(
+            DocumentUpload.id.in_(upload_ids),
+            DocumentUpload.knowledge_base_id == kb_id,
+        )
+        .all()
+    )
     uploads_dict = {upload.id: upload for upload in uploads}
 
     all_tasks = []
     for upload_id in upload_ids:
         upload = uploads_dict.get(upload_id)
         if not upload:
+            continue
+
+        existing_task = (
+            db.query(ProcessingTask)
+            .filter(
+                ProcessingTask.document_upload_id == upload_id,
+                ProcessingTask.status.in_(["pending", "processing"]),
+            )
+            .order_by(ProcessingTask.id.desc())
+            .first()
+        )
+        if existing_task:
+            task_info.append({"upload_id": upload_id, "task_id": existing_task.id})
+            continue
+
+        if upload.status != "pending":
             continue
 
         task = ProcessingTask(
@@ -659,23 +813,23 @@ async def process_kb_documents(
     for task in all_tasks:
         db.refresh(task)
 
+    created_tasks_by_upload_id = {
+        task.document_upload_id: task for task in all_tasks if task.document_upload_id
+    }
     task_data = []
-    for i, upload_id in enumerate(upload_ids):
-        if i < len(all_tasks):
-            task = all_tasks[i]
-            upload = uploads_dict.get(upload_id)
+    for upload_id, task in created_tasks_by_upload_id.items():
+        upload = uploads_dict.get(upload_id)
+        task_info.append({"upload_id": upload_id, "task_id": task.id})
 
-            task_info.append({"upload_id": upload_id, "task_id": task.id})
-
-            if upload:
-                task_data.append(
-                    {
-                        "task_id": task.id,
-                        "upload_id": upload_id,
-                        "temp_path": upload.temp_path,
-                        "file_name": upload.file_name,
-                    }
-                )
+        if upload:
+            task_data.append(
+                {
+                    "task_id": task.id,
+                    "upload_id": upload_id,
+                    "temp_path": upload.temp_path,
+                    "file_name": upload.file_name,
+                }
+            )
 
     background_tasks.add_task(add_processing_tasks_to_queue, task_data, kb_id)
 
@@ -755,6 +909,7 @@ async def get_kb_tasks(
     return [
         {
             "task_id": t.id,
+            "document_id": t.document_id,
             "file_name": t.document_upload.file_name if t.document_upload else None,
             "file_size": t.document_upload.file_size if t.document_upload else None,
             "status": t.status,
@@ -958,7 +1113,10 @@ async def get_document_chunks(
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    is_glossary = isinstance(document.analysis, dict) and document.analysis.get("type") == "glossary"
+    is_glossary = (
+        isinstance(document.analysis, dict)
+        and document.analysis.get("type") == "glossary"
+    )
 
     if is_glossary:
         chunks = (

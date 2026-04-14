@@ -8,7 +8,6 @@ through the book indexer to produce work-level and page-level retrieval records.
 import hashlib
 import logging
 import os
-import re
 import time
 import traceback
 from io import BytesIO
@@ -46,6 +45,108 @@ class UploadResult(BaseModel):
     file_size: int
     content_type: str
     file_hash: str
+
+
+def _find_document_conflict(
+    db: Session,
+    kb_id: int,
+    file_hash: str,
+    file_name: str,
+) -> Document | None:
+    """Return an identical document or raise on conflicting file-name reuse."""
+    existing_by_hash = (
+        db.query(Document)
+        .filter(
+            Document.knowledge_base_id == kb_id,
+            Document.file_hash == file_hash,
+        )
+        .first()
+    )
+    if existing_by_hash:
+        return existing_by_hash
+
+    existing_by_name = (
+        db.query(Document)
+        .filter(
+            Document.knowledge_base_id == kb_id,
+            Document.file_name == file_name,
+        )
+        .first()
+    )
+    if existing_by_name:
+        raise BookIndexingError(
+            "A different document with the same file name already exists. "
+            "Rename the file before uploading."
+        )
+
+    return None
+
+
+def _mark_task_completed_with_existing_document(
+    db: Session,
+    task_id: int,
+    document_id: int,
+) -> None:
+    """Attach an upload task to an existing identical document."""
+    task = db.query(ProcessingTask).get(task_id)
+    if not task:
+        return
+
+    task.status = "completed"
+    task.document_id = document_id
+    upload = task.document_upload
+    if upload:
+        upload.status = "completed"
+        upload.error_message = None
+    db.commit()
+
+
+def _mark_task_failed(db: Session, task_id: int, error_message: str) -> None:
+    """Persist a failed processing status after rollback/cleanup."""
+    task = db.query(ProcessingTask).get(task_id)
+    if not task:
+        return
+
+    task.status = "failed"
+    task.error_message = error_message
+    upload = task.document_upload
+    if upload:
+        upload.status = "failed"
+        upload.error_message = error_message
+    db.commit()
+
+
+def _cleanup_failed_processing(
+    db: Session,
+    *,
+    document_id: int | None,
+    temp_path: str,
+    permanent_path: str | None,
+) -> None:
+    """Remove partial DB rows and uploaded objects after a failed processing run."""
+    if document_id is not None:
+        try:
+            db.query(DocumentChunk).filter(
+                DocumentChunk.document_id == document_id
+            ).delete()
+            db.query(Document).filter(Document.id == document_id).delete()
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            logger.warning(
+                "Failed to clean up partial document %s after processing error: %s",
+                document_id,
+                exc,
+            )
+
+    minio_client = get_minio_client()
+    for object_name in {temp_path, permanent_path}:
+        if not object_name:
+            continue
+        try:
+            minio_client.remove_object(settings.MINIO_BUCKET_NAME, object_name)
+        except Exception:
+            logger.warning("Failed to clean up MinIO object %s", object_name)
 
 
 # ─── Upload ───────────────────────────────────────────────────────────────────
@@ -116,120 +217,160 @@ def _process_xlsx_document(
     as failed and clean up MinIO.
     """
     task_id = task.id
+    permanent_path: str | None = None
+    document_id: int | None = None
 
-    # 1. Download from MinIO
     try:
-        minio_client.fget_object(
-            bucket_name=settings.MINIO_BUCKET_NAME,
-            object_name=temp_path,
-            file_path=local_temp_path,
+        # 1. Download from MinIO
+        try:
+            minio_client.fget_object(
+                bucket_name=settings.MINIO_BUCKET_NAME,
+                object_name=temp_path,
+                file_path=local_temp_path,
+            )
+        except MinioException as exc:
+            raise BookIndexingError(
+                f"Failed to download xlsx from MinIO: {exc}"
+            ) from exc
+
+        # 2. Parse terms
+        try:
+            terms = parse_glossary_xlsx(local_temp_path)
+        except ValueError as exc:
+            raise BookIndexingError(str(exc)) from exc
+        if not terms:
+            raise BookIndexingError(
+                "No terms found in the xlsx file. "
+                "Ensure it contains a header row with recognised Kazakh column names."
+            )
+
+        # 3. Move temp → permanent (UUID-based key already set)
+        temp_object_name = temp_path.split("/")[-1]
+        permanent_path = f"kb_{kb_id}/{temp_object_name}"
+        existing_document = _find_document_conflict(
+            db,
+            kb_id,
+            task.document_upload.file_hash,
+            file_name,
         )
-    except MinioException as exc:
-        raise BookIndexingError(f"Failed to download xlsx from MinIO: {exc}") from exc
+        if existing_document:
+            minio_client.remove_object(settings.MINIO_BUCKET_NAME, temp_path)
+            _mark_task_completed_with_existing_document(
+                db, task_id, existing_document.id
+            )
+            logger.info(
+                "Task %d: Reused existing glossary document %d",
+                task_id,
+                existing_document.id,
+            )
+            return
 
-    # 2. Parse terms
-    terms = parse_glossary_xlsx(local_temp_path)
-    if not terms:
-        raise BookIndexingError(
-            "No terms found in the xlsx file. "
-            "Ensure it contains a header row with recognised Kazakh column names."
-        )
+        try:
+            from minio.commonconfig import CopySource
 
-    # 3. Move temp → permanent (UUID-based key already set)
-    temp_object_name = temp_path.split("/")[-1]
-    permanent_path = f"kb_{kb_id}/{temp_object_name}"
-    try:
-        from minio.commonconfig import CopySource
+            minio_client.copy_object(
+                bucket_name=settings.MINIO_BUCKET_NAME,
+                object_name=permanent_path,
+                source=CopySource(settings.MINIO_BUCKET_NAME, temp_path),
+            )
+            minio_client.remove_object(settings.MINIO_BUCKET_NAME, temp_path)
+        except MinioException as exc:
+            raise BookIndexingError(
+                f"Failed to move xlsx to permanent storage: {exc}"
+            ) from exc
 
-        minio_client.copy_object(
-            bucket_name=settings.MINIO_BUCKET_NAME,
-            object_name=permanent_path,
-            source=CopySource(settings.MINIO_BUCKET_NAME, temp_path),
-        )
-        minio_client.remove_object(settings.MINIO_BUCKET_NAME, temp_path)
-    except MinioException as exc:
-        raise BookIndexingError(
-            f"Failed to move xlsx to permanent storage: {exc}"
-        ) from exc
-
-    # 4. Collect metadata summary for Document.analysis
-    authors = sorted({t.get("author", "") for t in terms if t.get("author")})
-    fields = sorted({t.get("field", "") for t in terms if t.get("field")})
-    analysis = {
-        "type": "glossary",
-        "term_count": len(terms),
-        "authors": authors,
-        "fields": fields,
-    }
-
-    # 5. Create Document record
-    document = Document(
-        file_name=file_name,
-        file_path=permanent_path,
-        file_hash=task.document_upload.file_hash,
-        file_size=task.document_upload.file_size,
-        content_type=task.document_upload.content_type,
-        knowledge_base_id=kb_id,
-        analysis=analysis,
-    )
-    db.add(document)
-    db.commit()
-    db.refresh(document)
-    logger.info(
-        "Task %d: Glossary document created (id=%d, %d terms)",
-        task_id,
-        document.id,
-        len(terms),
-    )
-
-    # 6. Store DocumentChunk records (one per term)
-    t0 = time.monotonic()
-    for i, term in enumerate(terms):
-        alash_term = term.get("alash_term", "")
-        chunk_id = hashlib.sha256(
-            f"term:{kb_id}:{document.id}:{alash_term}:{i}".encode()
-        ).hexdigest()
-
-        metadata = {
-            "kb_id": kb_id,
-            "document_id": document.id,
-            "chunk_id": chunk_id,
-            "chunk_type": "term",
-            **term,
+        # 4. Collect metadata summary for Document.analysis
+        authors = sorted({t.get("author", "") for t in terms if t.get("author")})
+        fields = sorted({t.get("field", "") for t in terms if t.get("field")})
+        analysis = {
+            "type": "glossary",
+            "term_count": len(terms),
+            "authors": authors,
+            "fields": fields,
         }
 
-        db.add(
-            DocumentChunk(
-                id=chunk_id,
-                document_id=document.id,
-                kb_id=kb_id,
-                file_name=file_name,
-                chunk_type="term",
-                chunk_label=alash_term,
-                chunk_metadata=metadata,
-                hash=hashlib.sha256(term.get("page_content", "").encode()).hexdigest(),
-            )
+        # 5. Create Document record
+        document = Document(
+            file_name=file_name,
+            file_path=permanent_path,
+            file_hash=task.document_upload.file_hash,
+            file_size=task.document_upload.file_size,
+            content_type=task.document_upload.content_type,
+            knowledge_base_id=kb_id,
+            analysis=analysis,
+        )
+        db.add(document)
+        db.commit()
+        db.refresh(document)
+        document_id = document.id
+        task.document_id = document.id
+        db.commit()
+        logger.info(
+            "Task %d: Glossary document created (id=%d, %d terms)",
+            task_id,
+            document.id,
+            len(terms),
         )
 
-        if i > 0 and i % 200 == 0:
-            db.commit()
+        # 6. Store DocumentChunk records (one per term)
+        t0 = time.monotonic()
+        for i, term in enumerate(terms):
+            alash_term = term.get("alash_term", "")
+            chunk_id = hashlib.sha256(
+                f"term:{kb_id}:{document.id}:{alash_term}:{i}".encode()
+            ).hexdigest()
 
-    db.commit()
-    logger.info(
-        "Task %d: Stored %d term chunks in %.1fs",
-        task_id,
-        len(terms),
-        time.monotonic() - t0,
-    )
+            metadata = {
+                "kb_id": kb_id,
+                "document_id": document.id,
+                "chunk_id": chunk_id,
+                "chunk_type": "term",
+                **term,
+            }
 
-    # 7. Mark completed
-    task.status = "completed"
-    task.document_id = document.id
-    upload = task.document_upload
-    if upload:
-        upload.status = "completed"
-    db.commit()
-    logger.info("Task %d: Glossary processing completed", task_id)
+            db.add(
+                DocumentChunk(
+                    id=chunk_id,
+                    document_id=document.id,
+                    kb_id=kb_id,
+                    file_name=file_name,
+                    chunk_type="term",
+                    chunk_label=alash_term,
+                    chunk_metadata=metadata,
+                    hash=hashlib.sha256(
+                        term.get("page_content", "").encode()
+                    ).hexdigest(),
+                )
+            )
+
+            if i > 0 and i % 200 == 0:
+                db.commit()
+
+        db.commit()
+        logger.info(
+            "Task %d: Stored %d term chunks in %.1fs",
+            task_id,
+            len(terms),
+            time.monotonic() - t0,
+        )
+
+        # 7. Mark completed
+        task.status = "completed"
+        task.document_id = document.id
+        upload = task.document_upload
+        if upload:
+            upload.status = "completed"
+        db.commit()
+        logger.info("Task %d: Glossary processing completed", task_id)
+    except Exception:
+        db.rollback()
+        _cleanup_failed_processing(
+            db,
+            document_id=document_id,
+            temp_path=temp_path,
+            permanent_path=permanent_path,
+        )
+        raise
 
 
 def process_document_background(
@@ -265,6 +406,9 @@ def process_document_background(
         return
 
     local_temp_path = f"/tmp/proc_{task_id}_{file_name}"
+
+    document_id: int | None = None
+    permanent_path: str | None = None
 
     try:
         task.status = "processing"
@@ -361,6 +505,24 @@ def process_document_background(
             final_file_name = file_name
         # Use the UUID from the temp path as the permanent object name so MinIO
         # never sees non-ASCII characters in the object key.
+        existing_document = _find_document_conflict(
+            db,
+            kb_id,
+            task.document_upload.file_hash,
+            final_file_name,
+        )
+        if existing_document:
+            minio_client.remove_object(settings.MINIO_BUCKET_NAME, temp_path)
+            _mark_task_completed_with_existing_document(
+                db, task_id, existing_document.id
+            )
+            logger.info(
+                "Task %d: Reused existing processed document %d",
+                task_id,
+                existing_document.id,
+            )
+            return
+
         temp_object_name = temp_path.split("/")[-1]  # e.g. "d4156c80....json"
         permanent_path = f"kb_{kb_id}/{temp_object_name}"
 
@@ -396,6 +558,9 @@ def process_document_background(
         db.add(document)
         db.commit()
         db.refresh(document)
+        document_id = document.id
+        task.document_id = document.id
+        db.commit()
         logger.info(f"Task {task_id}: Document record created (id={document.id})")
 
         # 9. Store DocumentChunk records in DB
@@ -481,35 +646,26 @@ def process_document_background(
 
     except BookIndexingError as exc:
         logger.error(f"Task {task_id}: Book indexing failed: {exc}")
-        task.status = "failed"
-        task.error_message = str(exc)
-        upload = task.document_upload
-        if upload:
-            upload.status = "failed"
-            upload.error_message = str(exc)
-        db.commit()
-        # Clean up temp MinIO file
-        try:
-            minio_client = get_minio_client()
-            minio_client.remove_object(settings.MINIO_BUCKET_NAME, temp_path)
-        except Exception:
-            pass
+        db.rollback()
+        _cleanup_failed_processing(
+            db,
+            document_id=document_id,
+            temp_path=temp_path,
+            permanent_path=permanent_path,
+        )
+        _mark_task_failed(db, task_id, str(exc))
 
     except Exception as exc:
         logger.error(f"Task {task_id}: Unexpected error: {exc}")
         logger.error(traceback.format_exc())
-        task.status = "failed"
-        task.error_message = f"Unexpected error: {exc}"
-        upload = task.document_upload
-        if upload:
-            upload.status = "failed"
-            upload.error_message = f"Unexpected error: {exc}"
-        db.commit()
-        try:
-            minio_client = get_minio_client()
-            minio_client.remove_object(settings.MINIO_BUCKET_NAME, temp_path)
-        except Exception:
-            pass
+        db.rollback()
+        _cleanup_failed_processing(
+            db,
+            document_id=document_id,
+            temp_path=temp_path,
+            permanent_path=permanent_path,
+        )
+        _mark_task_failed(db, task_id, f"Unexpected error: {exc}")
 
     finally:
         if os.path.exists(local_temp_path):

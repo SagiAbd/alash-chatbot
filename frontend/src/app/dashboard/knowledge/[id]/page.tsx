@@ -7,13 +7,25 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
 import { Download, Upload, X } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
+import { createClientFileId } from "@/lib/file-upload-id";
 import { useDropzone } from "react-dropzone";
 import DashboardLayout from "@/components/layout/dashboard-layout";
 
 interface QueuedFile {
+  id: string;
   file: File;
   status: "uploading" | "done" | "error";
+  message?: string;
   error?: string;
+}
+
+interface UploadResult {
+  upload_id?: number;
+  document_id?: number;
+  file_name: string;
+  status: "pending" | "exists" | "queued" | "conflict" | "error";
+  skip_processing: boolean;
+  message?: string;
 }
 
 export default function KnowledgeBasePage() {
@@ -27,6 +39,7 @@ export default function KnowledgeBasePage() {
   const uploadAndProcess = useCallback(
     async (files: File[]) => {
       const newEntries: QueuedFile[] = files.map((f) => ({
+        id: createClientFileId(f),
         file: f,
         status: "uploading",
       }));
@@ -36,31 +49,96 @@ export default function KnowledgeBasePage() {
       files.forEach((f) => formData.append("files", f));
 
       try {
-        const uploadResults = await api.post(
+        const uploadResults = (await api.post(
           `/api/knowledge-base/${knowledgeBaseId}/documents/upload`,
           formData
-        );
+        )) as UploadResult[];
 
         const toProcess = uploadResults.filter(
-          (r: { skip_processing: boolean }) => !r.skip_processing
+          (r) => !r.skip_processing && r.status === "pending" && r.upload_id
         );
 
+        let processError: string | null = null;
         if (toProcess.length > 0) {
-          await api.post(
-            `/api/knowledge-base/${knowledgeBaseId}/documents/process`,
-            toProcess
-          );
+          try {
+            await api.post(
+              `/api/knowledge-base/${knowledgeBaseId}/documents/process`,
+              toProcess
+            );
+          } catch (err) {
+            processError =
+              err instanceof ApiError
+                ? err.message
+                : "Files uploaded but failed to queue processing";
+          }
         }
 
+        const resultsByFile = new Map(
+          files.map((file, index) => [file, uploadResults[index]])
+        );
         setQueuedFiles((prev) =>
           prev.map((entry) =>
-            files.includes(entry.file) ? { ...entry, status: "done" } : entry
+            resultsByFile.has(entry.file)
+              ? (() => {
+                  const result = resultsByFile.get(entry.file);
+                  if (!result) {
+                    return {
+                      ...entry,
+                      status: "error" as const,
+                      error: "Upload result missing",
+                    };
+                  }
+
+                  if (result.status === "conflict" || result.status === "error") {
+                    return {
+                      ...entry,
+                      status: "error" as const,
+                      error: result.message || "Upload failed",
+                    };
+                  }
+
+                  if (result.status === "pending" && processError) {
+                    return {
+                      ...entry,
+                      status: "error" as const,
+                      error: processError,
+                    };
+                  }
+
+                  return {
+                    ...entry,
+                    status: "done" as const,
+                    message:
+                      result.message ||
+                      (result.status === "pending"
+                        ? "Queued for processing"
+                        : result.status === "exists"
+                        ? "Already in knowledge base"
+                        : "Already queued for processing"),
+                  };
+                })()
+              : entry
           )
         );
-        setListRefreshKey((k) => k + 1);
+        if (uploadResults.some((result) => result.status !== "error")) {
+          setListRefreshKey((k) => k + 1);
+        }
         setTimeout(() => {
-          setQueuedFiles((prev) => prev.filter((entry) => !files.includes(entry.file)));
+          setQueuedFiles((prev) =>
+            prev.filter(
+              (entry) =>
+                !files.includes(entry.file) || entry.status === "error"
+            )
+          );
         }, 2000);
+
+        if (processError) {
+          toast({
+            title: "Processing queue failed",
+            description: processError,
+            variant: "destructive",
+          });
+        }
       } catch (err) {
         const message = err instanceof ApiError ? err.message : "Upload failed";
         setQueuedFiles((prev) =>
@@ -173,7 +251,7 @@ export default function KnowledgeBasePage() {
         <div className="mb-6 space-y-2">
           {queuedFiles.map((entry, i) => (
             <div
-              key={i}
+              key={entry.id}
               className="flex items-center justify-between rounded-md border px-4 py-2 text-sm"
             >
               <span className="truncate max-w-[60%]">{entry.file.name}</span>
@@ -182,7 +260,9 @@ export default function KnowledgeBasePage() {
                   <span className="text-muted-foreground animate-pulse">Uploading…</span>
                 )}
                 {entry.status === "done" && (
-                  <span className="text-green-600">Queued for processing</span>
+                  <span className="text-green-600">
+                    {entry.message || "Queued for processing"}
+                  </span>
                 )}
                 {entry.status === "error" && (
                   <span className="text-destructive">{entry.error}</span>

@@ -28,6 +28,7 @@ interface ProcessingTask {
   id: number;
   status: string;
   error_message: string | null;
+  updated_at?: string;
 }
 
 interface BookAnalysis {
@@ -65,6 +66,7 @@ interface Document {
 
 interface PendingTask {
   task_id: number;
+  document_id: number | null;
   file_name: string | null;
   file_size: number | null;
   status: string;
@@ -261,7 +263,9 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
 
   const buildRows = (documents: Document[], pendingTasks: PendingTask[]): Row[] => {
     const docRows: Row[] = documents.map((doc) => {
-      const task = doc.processing_tasks[0];
+      const task = [...doc.processing_tasks].sort((a, b) =>
+        (b.updated_at || "").localeCompare(a.updated_at || "")
+      )[0];
       return {
         key: `doc-${doc.id}`,
         docId: doc.id,
@@ -277,9 +281,15 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
       };
     });
 
+    const docIds = new Set(documents.map((d) => d.id));
     const docFileNames = new Set(documents.map((d) => d.file_name));
     const pendingRows: Row[] = pendingTasks
-      .filter((t) => t.file_name && !docFileNames.has(t.file_name))
+      .filter(
+        (t) =>
+          t.file_name &&
+          !docFileNames.has(t.file_name) &&
+          !(t.document_id && docIds.has(t.document_id))
+      )
       .map((t) => ({
         key: `task-${t.task_id}`,
         docId: null,

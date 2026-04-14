@@ -5,7 +5,10 @@ is resilient to columns being added, removed, or reordered between exports.
 """
 
 import logging
+import re
+import unicodedata
 from typing import Any
+from zipfile import BadZipFile
 
 logger = logging.getLogger(__name__)
 
@@ -14,12 +17,16 @@ logger = logging.getLogger(__name__)
 _COLUMN_PATTERNS: list[tuple[str, str]] = [
     ("алаш термині", "alash_term"),
     ("заманауи термин", "modern_term"),
+    ("заманауи атауы", "modern_term"),
     ("сала", "field"),
+    ("кіші сала", "field"),
     ("заманауи түсініктеме", "modern_definition"),
     ("алаш түсініктемесі", "alash_definition"),
     ("анықтама бар ма", "has_definition"),
     ("екі бет арасындағы мәтін", "context"),
+    ("контекст", "context"),
     ("авторы", "author"),
+    ("автор", "author"),
     ("басталатын беті", "start_page"),
     ("аяқталу беті", "end_page"),
     ("жазылу жылы", "year"),
@@ -27,11 +34,19 @@ _COLUMN_PATTERNS: list[tuple[str, str]] = [
 ]
 
 
+def _normalize_cell_text(value: str) -> str:
+    """Normalize header text for resilient substring matching."""
+    normalized = unicodedata.normalize("NFKC", value or "")
+    normalized = normalized.replace("\ufeff", " ").replace("\xa0", " ")
+    normalized = normalized.strip().lower()
+    return re.sub(r"\s+", " ", normalized)
+
+
 def _detect_column_mapping(row: list[str]) -> dict[int, str]:
     """Return {column_index: field_key} by scanning a header row."""
     mapping: dict[int, str] = {}
     for col_idx, cell in enumerate(row):
-        normalized = (cell or "").strip().lower()
+        normalized = _normalize_cell_text(cell)
         if not normalized:
             continue
         for pattern, key in _COLUMN_PATTERNS:
@@ -57,7 +72,46 @@ def _build_page_content(term: dict[str, Any]) -> str:
         val = str(term.get(key) or "").strip()
         if val:
             parts.append(f"{label}: {val}")
+    for key, label in [
+        ("year", "Жылы"),
+        ("link", "Сілтеме"),
+        ("start_page", "Басталатын беті"),
+        ("end_page", "Аяқталу беті"),
+    ]:
+        val = str(term.get(key) or "").strip()
+        if val:
+            parts.append(f"{label}: {val}")
     return " | ".join(parts)
+
+
+def _extract_terms_from_sheet(ws: Any) -> list[dict[str, Any]]:
+    """Extract terms from a single worksheet."""
+    col_mapping: dict[int, str] = {}
+    terms: list[dict[str, Any]] = []
+
+    for row in ws.iter_rows(values_only=True):
+        row_values = [str(cell) if cell is not None else "" for cell in row]
+
+        if not col_mapping:
+            candidate = _detect_column_mapping(row_values)
+            if "alash_term" in candidate.values():
+                col_mapping = candidate
+            continue
+
+        term: dict[str, Any] = {}
+        for col_idx, field_key in col_mapping.items():
+            if col_idx < len(row_values):
+                val = row_values[col_idx].strip()
+                term[field_key] = val if val and val.lower() != "none" else ""
+
+        alash_term = str(term.get("alash_term") or "").strip()
+        if not alash_term:
+            continue
+
+        term["page_content"] = _build_page_content(term)
+        terms.append(term)
+
+    return terms
 
 
 def parse_glossary_xlsx(file_path: str) -> list[dict[str, Any]]:
@@ -75,36 +129,28 @@ def parse_glossary_xlsx(file_path: str) -> list[dict[str, Any]]:
         List of term dicts.  Empty if no valid header was found.
     """
     import openpyxl
+    from openpyxl.utils.exceptions import InvalidFileException
 
-    wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
-    ws = wb.active
+    try:
+        wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+    except (BadZipFile, InvalidFileException, OSError, ValueError) as exc:
+        raise ValueError(
+            "The uploaded file is not a valid Excel workbook."
+        ) from exc
 
-    col_mapping: dict[int, str] = {}
-    terms: list[dict[str, Any]] = []
+    try:
+        for ws in wb.worksheets:
+            terms = _extract_terms_from_sheet(ws)
+            if terms:
+                logger.info(
+                    "Parsed %d terms from %s (sheet=%s)",
+                    len(terms),
+                    file_path,
+                    ws.title,
+                )
+                return terms
+    finally:
+        wb.close()
 
-    for row in ws.iter_rows(values_only=True):
-        row_values = [str(cell) if cell is not None else "" for cell in row]
-
-        if not col_mapping:
-            candidate = _detect_column_mapping(row_values)
-            # Require at least 3 recognised columns AND the key identifier
-            if len(candidate) >= 3 and "alash_term" in candidate.values():
-                col_mapping = candidate
-            continue
-
-        term: dict[str, Any] = {}
-        for col_idx, field_key in col_mapping.items():
-            if col_idx < len(row_values):
-                val = row_values[col_idx].strip()
-                term[field_key] = val if val and val.lower() != "none" else ""
-
-        alash_term = str(term.get("alash_term") or "").strip()
-        if not alash_term:
-            continue
-
-        term["page_content"] = _build_page_content(term)
-        terms.append(term)
-
-    wb.close()
-    logger.info("Parsed %d terms from %s", len(terms), file_path)
-    return terms
+    logger.info("Parsed 0 terms from %s", file_path)
+    return []

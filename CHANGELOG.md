@@ -1,5 +1,15 @@
 # Changelog
 
+## [2026-04-14]
+
+### Fixed
+- Replaced direct `crypto.randomUUID()` usage in KB upload UIs with a browser-safe client file ID helper so uploads still work in runtimes without that Web Crypto method
+- Hardened knowledge-base uploads against duplicate content, duplicate file names, and duplicate task creation by returning per-file upload results, reusing existing identical documents, and refusing conflicting same-name uploads before processing
+- Stopped the knowledge-base document list from briefly showing the same upload twice by merging pending tasks with processed documents via `document_id` and by preferring the latest processing-task status
+- Made KB upload failures safer by cleaning up partial documents and MinIO objects when processing fails after a document record has already been created
+- Updated both KB upload UIs to reconcile files by upload order/object identity instead of file name, so two files with the same name no longer overwrite each other's client-side status
+- Hardened glossary XLSX parsing to tolerate removed optional columns, shifted or partially removed metadata rows, and non-active worksheet exports, while returning a cleaner validation error for invalid workbook files
+
 ## [2026-04-05]
 
 ### Added

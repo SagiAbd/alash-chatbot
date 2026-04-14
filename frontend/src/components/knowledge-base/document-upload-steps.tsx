@@ -12,6 +12,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { Loader2, Upload, X, Settings, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, ApiError } from "@/lib/api";
+import { createClientFileId } from "@/lib/file-upload-id";
 import { useDropzone } from "react-dropzone";
 import {
   Select,
@@ -33,6 +34,7 @@ interface DocumentUploadStepsProps {
 }
 
 interface FileStatus {
+  id: string;
   file: File;
   status:
     | "pending"
@@ -51,7 +53,7 @@ interface UploadResult {
   upload_id?: number;
   document_id?: number;
   file_name: string;
-  status: "exists" | "pending";
+  status: "exists" | "pending" | "queued" | "conflict" | "error";
   message?: string;
   skip_processing: boolean;
   temp_path?: string;
@@ -112,6 +114,7 @@ export function DocumentUploadSteps({
     setFiles((prev) => [
       ...prev,
       ...acceptedFiles.map((file) => ({
+        id: createClientFileId(file),
         file,
         status: "pending" as const,
       })),
@@ -156,27 +159,40 @@ export function DocumentUploadSteps({
       )) as UploadResult[];
 
       // Update file statuses
+      const pendingById = new Map(
+        pendingFiles.map((fileStatus, index) => [fileStatus.id, data[index]])
+      );
       setFiles((prev) =>
         prev.map((f) => {
-          const uploadResult = data.find((d) => d.file_name === f.file.name);
-          if (uploadResult) {
-            if (uploadResult.status === "exists") {
-              return {
-                ...f,
-                status: "completed",
-                documentId: uploadResult.document_id,
-                error: uploadResult.message,
-              };
-            } else {
-              return {
-                ...f,
-                status: "uploaded",
-                uploadId: uploadResult.upload_id,
-                tempPath: uploadResult.temp_path,
-              };
-            }
+          const uploadResult = pendingById.get(f.id);
+          if (!uploadResult) {
+            return f;
           }
-          return f;
+          if (uploadResult.status === "exists" || uploadResult.status === "queued") {
+            return {
+              ...f,
+              status: "completed",
+              documentId: uploadResult.document_id,
+              uploadId: uploadResult.upload_id,
+              error: uploadResult.message,
+            };
+          }
+          if (
+            uploadResult.status === "conflict" ||
+            uploadResult.status === "error"
+          ) {
+            return {
+              ...f,
+              status: "error",
+              error: uploadResult.message || "Upload failed",
+            };
+          }
+          return {
+            ...f,
+            status: "uploaded",
+            uploadId: uploadResult.upload_id,
+            tempPath: uploadResult.temp_path,
+          };
         })
       );
 
@@ -418,7 +434,7 @@ export function DocumentUploadSteps({
                 <div className="space-y-2 max-h-[300px] overflow-y-auto">
                   {files.map((fileStatus) => (
                     <div
-                      key={fileStatus.file.name}
+                      key={fileStatus.id}
                       className="flex items-center justify-between p-4 rounded-lg border"
                     >
                       <div className="flex items-center space-x-4">

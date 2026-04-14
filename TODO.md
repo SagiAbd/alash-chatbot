@@ -4,16 +4,17 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 
 ### Todo
 
-- fix kb upload duplicates  
+- remove rag web ui references alongside the app. its logo too
 - deploy  
 - set admin and avg user permissions  
 
 ### In Progress
 
-- fix bugs in kb upload  
 
 ### Done
 
+- fix kb upload duplicates
+- fix bugs in kb upload
 - add glossary tool (fuzzy search over terms database)  
 - add agent steps calling animation  
 - enforce deeper work-level reading before broad author-study answers  
@@ -49,4 +50,3 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 - fix event loop blocking during document processing  
 - remove vector store from processing and retrieval paths  
 - Clean ocr.json from hallucinations  
-
