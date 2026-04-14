@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { FileIcon, defaultStyles } from "react-file-icon";
-import { ArrowRight, Plus, Settings, Trash2, Search, Upload } from "lucide-react";
+import { ArrowRight, Check, Plus, Settings, Trash2, Search, Upload } from "lucide-react";
 import DashboardLayout from "@/components/layout/dashboard-layout";
 import { api, ApiError } from "@/lib/api";
 import { useToast } from "@/components/ui/use-toast";
@@ -14,6 +14,10 @@ interface KnowledgeBase {
   description: string;
   documents: Document[];
   created_at: string;
+}
+
+interface AppSettings {
+  public_kb_id: number | null;
 }
 interface Document {
   id: number;
@@ -29,19 +33,30 @@ interface Document {
 
 export default function KnowledgeBasePage() {
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
+  const [publicKbId, setPublicKbId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
+  const [settingPublicId, setSettingPublicId] = useState<number | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
-    fetchKnowledgeBases();
+    void loadKnowledgePage();
   }, []);
 
   const fetchKnowledgeBases = async () => {
+    const data = await api.get("/api/knowledge-base");
+    setKnowledgeBases(data);
+  };
+
+  const fetchSettings = async () => {
+    const data = (await api.get("/api/settings")) as AppSettings;
+    setPublicKbId(data.public_kb_id);
+  };
+
+  const loadKnowledgePage = async () => {
     try {
-      const data = await api.get("/api/knowledge-base");
-      setKnowledgeBases(data);
+      await Promise.all([fetchKnowledgeBases(), fetchSettings()]);
     } catch (error) {
       console.error("Failed to fetch knowledge bases:", error);
       if (error instanceof ApiError) {
@@ -56,12 +71,40 @@ export default function KnowledgeBasePage() {
     }
   };
 
+  const handleSetPublic = async (id: number) => {
+    setSettingPublicId(id);
+    try {
+      const data = (await api.post(
+        `/api/knowledge-base/${id}/set-public-chatbot`
+      )) as { public_kb_id: number };
+      setPublicKbId(data.public_kb_id);
+      toast({
+        title: "Success",
+        description: "Public chatbot knowledge base updated",
+      });
+    } catch (error) {
+      console.error("Failed to set public knowledge base:", error);
+      if (error instanceof ApiError) {
+        toast({
+          title: "Error",
+          description: error.message,
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setSettingPublicId(null);
+    }
+  };
+
   const handleDelete = async (id: number) => {
     if (!confirm("Are you sure you want to delete this knowledge base?"))
       return;
     try {
       await api.delete(`/api/knowledge-base/${id}`);
       setKnowledgeBases((prev) => prev.filter((kb) => kb.id !== id));
+      if (publicKbId === id) {
+        setPublicKbId(null);
+      }
       toast({
         title: "Success",
         description: "Knowledge base deleted successfully",
@@ -165,9 +208,27 @@ export default function KnowledgeBasePage() {
                     {kb.documents.length} documents •{" "}
                     {new Date(kb.created_at).toLocaleDateString()}
                   </p>
+                  {publicKbId === kb.id && (
+                    <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+                      <Check className="h-3.5 w-3.5" />
+                      Active public chatbot KB
+                    </div>
+                  )}
                 </div>
 
-                <div className="flex space-x-2">
+                <div className="flex flex-wrap justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleSetPublic(kb.id)}
+                    disabled={settingPublicId === kb.id || publicKbId === kb.id}
+                    className="inline-flex items-center justify-center rounded-md border px-3 py-2 text-xs font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {publicKbId === kb.id
+                      ? "Public chatbot KB"
+                      : settingPublicId === kb.id
+                      ? "Saving..."
+                      : "Set as public chatbot KB"}
+                  </button>
                   <Link
                     href={`/dashboard/knowledge/${kb.id}`}
                     className="inline-flex items-center justify-center rounded-md bg-secondary w-8 h-8"

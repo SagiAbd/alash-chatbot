@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
-import { Book, MessageSquare, LogOut, Menu } from "lucide-react";
+import { Book, MessageSquare, LogOut, Menu, SlidersHorizontal } from "lucide-react";
 import Breadcrumb from "@/components/ui/breadcrumb";
 import { api } from "@/lib/api";
 
@@ -45,6 +45,7 @@ export default function DashboardLayout({
   const navigation = [
     { name: "Knowledge Base", href: "/admin/knowledge", icon: Book },
     { name: "Chat", href: "/admin/chat", icon: MessageSquare },
+    { name: "Settings", href: "/admin/settings", icon: SlidersHorizontal },
   ];
 
   if (isCheckingSession) {
@@ -150,6 +151,11 @@ export const dashboardConfig = {
       title: "Chat",
       href: "/admin/chat",
       icon: "messageSquare",
+    },
+    {
+      title: "Settings",
+      href: "/admin/settings",
+      icon: "slidersHorizontal",
     },
   ],
 };
