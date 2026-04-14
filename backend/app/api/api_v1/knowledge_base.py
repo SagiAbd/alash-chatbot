@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import re
+import uuid
 from datetime import datetime, timedelta
 from io import BytesIO
 from typing import Any, List
@@ -278,7 +279,9 @@ async def import_knowledge_base(
                         f"document '{exported_document.file_name}'"
                     ),
                 ) from exc
-            object_path = f"kb_{kb.id}/{exported_document.file_name}"
+            ext = exported_document.file_name.rsplit(".", 1)[-1] if "." in exported_document.file_name else ""
+            unique_name = f"{uuid.uuid4().hex}.{ext}" if ext else uuid.uuid4().hex
+            object_path = f"kb_{kb.id}/{unique_name}"
 
             minio_client.put_object(
                 bucket_name=settings.MINIO_BUCKET_NAME,
@@ -565,7 +568,9 @@ async def upload_kb_documents(
             continue
 
         # 3. 上传到临时目录
-        temp_path = f"kb_{kb_id}/temp/{file.filename}"
+        ext = file.filename.rsplit(".", 1)[-1] if "." in file.filename else ""
+        unique_name = f"{uuid.uuid4().hex}.{ext}" if ext else uuid.uuid4().hex
+        temp_path = f"kb_{kb_id}/temp/{unique_name}"
         await file.seek(0)
         try:
             minio_client = get_minio_client()
