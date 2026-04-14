@@ -87,6 +87,7 @@ export default function KnowledgeBasePage() {
     onDrop,
     accept: {
       "application/json": [".json"],
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
     },
     multiple: true,
   });
