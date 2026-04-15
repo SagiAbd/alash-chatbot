@@ -183,9 +183,6 @@ export default function PublicChatPage() {
                   <Bot className="h-8 w-8 text-muted-foreground" />
                 </div>
                 <p className="text-lg font-medium">Сұрағыңызды жазыңыз</p>
-                <p className="text-sm mt-1 text-center">
-                  Бет жаңартылса, қоғамдық чат жаңа сессиядан басталады.
-                </p>
               </div>
             )}
 
@@ -261,7 +258,7 @@ export default function PublicChatPage() {
                 onKeyDown={onKeyDown}
                 placeholder={
                   chatId
-                    ? "Сұрағыңызды осында жазыңыз..."
+                    ? "Сұрағыңызды жазыңыз..."
                     : "Қоғамдық чат дайындалып жатыр..."
                 }
                 disabled={!chatId || isLoading}

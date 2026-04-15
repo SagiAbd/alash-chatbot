@@ -13,6 +13,7 @@
 - Simplified the public chat header by removing the old branding block, restoring a top navigation row with a renamed `Басты бет` link, and keeping the `Жүйеге кіру` action above the chat
 - Simplified the login window by removing the Alash/admin banner block, dropping the helper sentence, and shortening the title to `Login`
 - Localized the login window into Kazakh, including the title, field labels, placeholders, submit button, fallback error text, and a shorter `Сайтқа оралу` return link
+- Simplified the public chat empty state by keeping the short `Сұрағыңызды жазыңыз` prompt and removing the longer helper text under the initial bot icon
 
 ### Fixed
 - Matched public chat streaming behavior to the admin chat by hiding empty assistant bubbles during think-only phases and showing the `Ойланудамын` status card only until visible answer text starts streaming
