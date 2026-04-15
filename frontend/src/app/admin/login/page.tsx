@@ -41,7 +41,7 @@ export default function AdminLoginPage() {
       if (err instanceof ApiError) {
         setError(err.message);
       } else {
-        setError("Login failed");
+        setError("Кіру сәтсіз аяқталды");
       }
     } finally {
       setLoading(false);
@@ -53,23 +53,7 @@ export default function AdminLoginPage() {
       <div className="w-full max-w-md">
         <div className="bg-white rounded-lg shadow-md p-8 space-y-6">
           <div className="text-center">
-            <div className="mb-6 inline-flex items-center gap-3 rounded-full border border-gray-200 px-4 py-2">
-              <span className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-900 text-sm font-semibold text-white">
-                A
-              </span>
-              <div className="text-left">
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-gray-500">
-                  Alash Chatbot
-                </p>
-                <p className="text-sm font-medium text-gray-900">
-                  Admin Console
-                </p>
-              </div>
-            </div>
-            <h1 className="text-3xl font-bold text-gray-900">Admin Login</h1>
-            <p className="mt-2 text-sm text-gray-600">
-              Sign in to manage knowledge bases, public chat, and settings.
-            </p>
+            <h1 className="text-3xl font-bold text-gray-900">Жүйеге кіру</h1>
           </div>
 
           <form className="space-y-6" onSubmit={handleSubmit}>
@@ -79,7 +63,7 @@ export default function AdminLoginPage() {
                   htmlFor="username"
                   className="block text-sm font-medium text-gray-700"
                 >
-                  Username
+                  Пайдаланушы аты
                 </label>
                 <input
                   id="username"
@@ -88,7 +72,7 @@ export default function AdminLoginPage() {
                   required
                   disabled={loading}
                   className="mt-1 block w-full px-3 py-2 rounded-md border border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Enter your username"
+                  placeholder="Пайдаланушы атыңызды енгізіңіз"
                 />
               </div>
 
@@ -97,7 +81,7 @@ export default function AdminLoginPage() {
                   htmlFor="password"
                   className="block text-sm font-medium text-gray-700"
                 >
-                  Password
+                  Құпиясөз
                 </label>
                 <input
                   id="password"
@@ -106,7 +90,7 @@ export default function AdminLoginPage() {
                   required
                   disabled={loading}
                   className="mt-1 block w-full px-3 py-2 rounded-md border border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Enter your password"
+                  placeholder="Құпиясөзіңізді енгізіңіз"
                 />
               </div>
             </div>
@@ -122,7 +106,7 @@ export default function AdminLoginPage() {
               disabled={loading}
               className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? "Signing in..." : "Sign in"}
+              {loading ? "Кіріп жатыр..." : "Кіру"}
             </button>
           </form>
 
@@ -131,7 +115,7 @@ export default function AdminLoginPage() {
               href="/"
               className="text-sm font-medium text-gray-600 hover:text-gray-500"
             >
-              Back to public site
+              Сайтқа оралу
             </Link>
           </div>
         </div>
