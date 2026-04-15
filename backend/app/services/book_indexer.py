@@ -9,7 +9,7 @@ then extracts both work-level texts and raw pages for deterministic retrieval.
 import json
 import logging
 import re
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from langchain_core.documents import Document as LangchainDocument
 from pydantic import BaseModel
@@ -69,6 +69,22 @@ class BookIndex(BaseModel):
 
 class BookIndexingError(Exception):
     """Raised when the LLM fails to produce a usable book index."""
+
+
+class BookMetadataResult(BaseModel):
+    """Metadata extracted from the first and last pages of the book."""
+
+    summary: str
+    metadata: BookMetadata
+
+
+class TOCSearchResult(BaseModel):
+    """TOC search result extracted from focused page windows."""
+
+    works: List[WorkEntry]
+    toc: Optional[TOCEntry] = None
+    toc_find_failed: bool = False
+    toc_failure_reason: str = ""
 
 
 # ─── Text cleaning ────────────────────────────────────────────────────────────
@@ -168,6 +184,78 @@ def find_toc_page_indexes(pages: List[LangchainDocument]) -> List[int]:
     return sorted(selected)
 
 
+AnalysisMode = Literal["candidate_toc", "last_pages", "first_pages"]
+
+
+def _render_page_block(
+    pages: List[LangchainDocument],
+    indexes: List[int],
+) -> str:
+    """Render OCR pages as numbered blocks for the analysis prompt."""
+
+    parts: List[str] = []
+    for idx in indexes:
+        page_num = _page_number(pages[idx], idx + 1)
+        parts.append(f"--- Page {page_num} ---\n{pages[idx].page_content}")
+    return "\n\n".join(parts)
+
+
+def _analysis_section(
+    title: str,
+    pages: List[LangchainDocument],
+    indexes: List[int],
+    empty_text: str,
+) -> str:
+    """Build one labeled analysis section for the LLM prompt."""
+
+    if indexes:
+        return f"{title}:\n{_render_page_block(pages, indexes)}"
+    return f"{title}:\n{empty_text}"
+
+
+def _window_indexes(
+    pages: List[LangchainDocument],
+    *,
+    from_start: bool,
+    window_size: int,
+) -> List[int]:
+    """Return a contiguous page window from the start or end."""
+
+    if not pages:
+        return []
+
+    if from_start:
+        return list(range(min(window_size, len(pages))))
+
+    start = max(0, len(pages) - window_size)
+    return list(range(start, len(pages)))
+
+
+def build_metadata_input(pages: List[LangchainDocument]) -> str:
+    """Collect first and last pages for metadata extraction."""
+
+    n = len(pages)
+    first_indexes = list(range(min(3, n)))
+    last_indexes = list(range(max(0, n - 2), n))
+
+    sections = [
+        _analysis_section(
+            "First pages",
+            pages,
+            first_indexes,
+            "(document is empty)",
+        ),
+        _analysis_section(
+            "Last pages",
+            pages,
+            last_indexes,
+            "(document is empty)",
+        ),
+    ]
+
+    return "\n\n".join(section for section in sections if section.strip())
+
+
 def _select_pages_in_range(
     pages: List[LangchainDocument],
     start_page: int,
@@ -216,49 +304,53 @@ def load_pages_from_json(file_path: str) -> List[LangchainDocument]:
 # ─── Analysis input construction ─────────────────────────────────────────────
 
 
-def build_analysis_input(pages: List[LangchainDocument]) -> str:
-    """Collect the pages sent to the LLM for analysis.
-
-    Gathers:
-    - First 3 pages
-    - Last 2 pages
-    - Detected TOC pages
+def build_analysis_input(
+    pages: List[LangchainDocument],
+    mode: AnalysisMode = "candidate_toc",
+    window_size: int = 15,
+) -> str:
+    """Collect the focused pages sent to the LLM for TOC analysis.
 
     Args:
         pages: Full list of cleaned page documents.
+        mode: Which focused page set to include for TOC/work discovery.
+        window_size: Number of pages to include for first/last page strategies.
 
     Returns:
         Concatenated text with ``--- Page N ---`` separators.
     """
-    n = len(pages)
-    first_indexes = list(range(min(3, n)))
-    last_indexes = list(range(max(0, n - 2), n))
-    toc_indexes = find_toc_page_indexes(pages)
+    focus_title: str
+    focus_indexes: List[int]
+    empty_text: str
 
-    def _render_page_block(indexes: List[int]) -> str:
-        parts: List[str] = []
-        for idx in indexes:
-            page_num = _page_number(pages[idx], idx + 1)
-            parts.append(f"--- Page {page_num} ---\n{pages[idx].page_content}")
-        return "\n\n".join(parts)
+    if mode == "candidate_toc":
+        focus_title = "Candidate TOC pages"
+        focus_indexes = find_toc_page_indexes(pages)
+        empty_text = "(none detected)"
+    elif mode == "last_pages":
+        focus_title = f"Last {window_size} pages"
+        focus_indexes = _window_indexes(
+            pages,
+            from_start=False,
+            window_size=window_size,
+        )
+        empty_text = "(document is empty)"
+    else:
+        focus_title = f"First {window_size} pages"
+        focus_indexes = _window_indexes(
+            pages,
+            from_start=True,
+            window_size=window_size,
+        )
+        empty_text = "(document is empty)"
 
-    sections = [
-        "First pages:\n" + _render_page_block(first_indexes),
-        (
-            "Candidate TOC pages:\n" + _render_page_block(toc_indexes)
-            if toc_indexes
-            else "Candidate TOC pages:\n(none detected)"
-        ),
-        "Last pages:\n" + _render_page_block(last_indexes),
-    ]
-
-    return "\n\n".join(section for section in sections if section.strip())
+    return _analysis_section(focus_title, pages, focus_indexes, empty_text)
 
 
 # ─── LLM analysis ─────────────────────────────────────────────────────────────
 
-_PROMPT_TEMPLATE = """\
-You are analyzing the first pages, last pages, and table of contents of a scanned book.
+_METADATA_PROMPT_TEMPLATE = """\
+You are analyzing the first pages and last pages of a scanned book.
 This is a book about a Kazakh and Alash intellectual figure from the early 20th
 century.
 The book may contain poems, articles, monologues, textbooks, legal texts,
@@ -276,7 +368,33 @@ Respond with ONLY valid JSON, no markdown, no explanation.
     "main_author": "Full name of the main subject of the book",
     "publisher": "Publisher name if visible, else empty string",
     "year": "Publication year if visible, else empty string"
-  }},
+  }}
+}}
+
+Rules:
+- main_author is the person this book is about, NOT the editor or foreword writer
+- If the author appears in the known authors list below, use the exact same spelling
+- Write the summary in the same language as the book content
+  (Kazakh if the book is in Kazakh, Russian if Russian)
+
+You are given: the first pages of the book and the last pages of the book.
+
+Text:
+{metadata_input}
+"""
+
+_TOC_PROMPT_TEMPLATE = """\
+You are analyzing a focused page section from a scanned book to determine
+whether it contains a real table of contents.
+This is a book about a Kazakh and Alash intellectual figure from the early 20th
+century.
+The book may contain poems, articles, monologues, textbooks, legal texts,
+or texts from any field.
+
+Extract structured information as JSON.
+Respond with ONLY valid JSON, no markdown, no explanation.
+
+{{
   "toc": {{
     "title": "Visible heading of the actual table of contents page",
     "start_page": <first actual TOC page number>,
@@ -296,44 +414,62 @@ Respond with ONLY valid JSON, no markdown, no explanation.
 Rules:
 - Page numbers come ONLY from the table of contents, not from your general knowledge
 - Page numbers correspond to the --- Page N --- markers in the text below
-- The "Candidate TOC pages" section contains OCR pages
-  that were heuristically selected as possible TOC pages
-- Decide yourself whether those candidate TOC pages are really a table of contents
-- main_author is the person this book is about, NOT the editor or foreword writer
-- If the author appears in the known authors list below, use the exact same spelling
+- The focused section may be labeled "Candidate TOC pages", "Last N pages",
+  or "First N pages" depending on the search attempt
+- Decide yourself whether the focused section really contains a table of contents
 - Fill toc.title/start_page/end_page from the actual
   table of contents pages when they are valid
 - Include every titled entry from the table of contents in works[]
 - end_page for a work is start_page of the next work minus 1
   (or last page of the book for the final work)
-- If the candidate TOC pages do not actually look like a
-  table of contents, or no valid TOC is visible, set toc to null,
-  set toc_find_failed to true, explain why in toc_failure_reason,
-  and return works: []
+- If the focused section does not actually look like a table of contents,
+  or no valid TOC is visible, set toc to null, set toc_find_failed to true,
+  explain why in toc_failure_reason, and return works: []
 - If TOC looks valid, set toc_find_failed to false and toc_failure_reason to ""
-- Write the summary in the same language as the book content
-  (Kazakh if the book is in Kazakh, Russian if Russian)
-
-You are given: the first pages of the book, the last pages,
-and the table of contents pages.
 
 Text:
 {analysis_input}
 """
 
 
-def index_book(
-    analysis_input: str,
+def _invoke_json_llm(
+    prompt: str,
+) -> dict:
+    """Invoke the configured LLM and parse a JSON object response."""
+
+    llm = LLMFactory.create(temperature=0, streaming=False)
+
+    try:
+        response = llm.invoke(prompt)
+        raw = response.content if hasattr(response, "content") else str(response)
+    except Exception as exc:
+        raise BookIndexingError(f"LLM call failed: {exc}") from exc
+
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```[a-z]*\n?", "", raw)
+        raw = re.sub(r"\n?```$", "", raw.strip())
+
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise BookIndexingError(
+            f"LLM returned invalid JSON: {exc}\nResponse was:\n{raw[:500]}"
+        ) from exc
+
+
+def extract_book_metadata(
+    metadata_input: str,
     known_authors: Optional[List[str]] = None,
-) -> BookIndex:
-    """Use the LLM to extract the book's structure from key pages.
+) -> BookMetadataResult:
+    """Use the LLM to extract summary and top-level metadata.
 
     Args:
-        analysis_input: Text from build_analysis_input().
+        metadata_input: Text from build_metadata_input().
         known_authors: List of author names already in the DB, for spelling consistency.
 
     Returns:
-        BookIndex with summary, metadata, and works list.
+        Metadata summary and book-level fields.
 
     Raises:
         BookIndexingError: If the LLM response cannot be parsed.
@@ -348,34 +484,40 @@ def index_book(
     else:
         hint = ""
 
-    prompt = _PROMPT_TEMPLATE.format(
+    prompt = _METADATA_PROMPT_TEMPLATE.format(
         known_authors_hint=hint,
-        analysis_input=analysis_input,
+        metadata_input=metadata_input,
     )
 
-    llm = LLMFactory.create(temperature=0, streaming=False)
+    data = _invoke_json_llm(prompt)
 
     try:
-        response = llm.invoke(prompt)
-        raw = response.content if hasattr(response, "content") else str(response)
+        return BookMetadataResult.model_validate(data)
     except Exception as exc:
-        raise BookIndexingError(f"LLM call failed: {exc}") from exc
-
-    # Strip accidental markdown fences
-    raw = raw.strip()
-    if raw.startswith("```"):
-        raw = re.sub(r"^```[a-z]*\n?", "", raw)
-        raw = re.sub(r"\n?```$", "", raw.strip())
-
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
         raise BookIndexingError(
-            f"LLM returned invalid JSON: {exc}\nResponse was:\n{raw[:500]}"
+            f"LLM JSON did not match expected schema: {exc}"
         ) from exc
 
+
+def index_book(
+    analysis_input: str,
+) -> TOCSearchResult:
+    """Use the LLM to locate a table of contents and extract work ranges.
+
+    Args:
+        analysis_input: Text from build_analysis_input().
+
+    Returns:
+        TOC search result with TOC status and works list.
+
+    Raises:
+        BookIndexingError: If the LLM response cannot be parsed.
+    """
+    prompt = _TOC_PROMPT_TEMPLATE.format(analysis_input=analysis_input)
+    data = _invoke_json_llm(prompt)
+
     try:
-        return BookIndex.model_validate(data)
+        return TOCSearchResult.model_validate(data)
     except Exception as exc:
         raise BookIndexingError(
             f"LLM JSON did not match expected schema: {exc}"

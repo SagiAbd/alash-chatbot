@@ -25,9 +25,13 @@ from app.core.minio import get_minio_client
 from app.db.session import SessionLocal
 from app.models.knowledge import Document, DocumentChunk, KnowledgeBase, ProcessingTask
 from app.services.book_indexer import (
+    AnalysisMode,
+    BookIndex,
     BookIndexingError,
     build_analysis_input,
+    build_metadata_input,
     clean_page_text,
+    extract_book_metadata,
     extract_pages,
     extract_works,
     index_book,
@@ -49,6 +53,12 @@ _CONTENT_TYPE_BY_EXT: dict[str, str] = {
 
 logger = logging.getLogger(__name__)
 
+BOOK_ANALYSIS_STRATEGIES: tuple[tuple[AnalysisMode, str], ...] = (
+    ("candidate_toc", "candidate TOC pages"),
+    ("last_pages", "last 15 pages"),
+    ("first_pages", "first 15 pages"),
+)
+
 
 # ─── Public models ────────────────────────────────────────────────────────────
 
@@ -59,6 +69,12 @@ class UploadResult(BaseModel):
     file_size: int
     content_type: str
     file_hash: str
+
+
+def _allow_duplicate_file_name(file_name: str) -> bool:
+    """Return True when same-name uploads should bypass name conflicts."""
+
+    return file_name.strip().lower() == "ocr.json"
 
 
 def _find_document_conflict(
@@ -78,6 +94,9 @@ def _find_document_conflict(
     )
     if existing_by_hash:
         return existing_by_hash
+
+    if _allow_duplicate_file_name(file_name):
+        return None
 
     existing_by_name = (
         db.query(Document)
@@ -222,26 +241,65 @@ def _analyze_book_pages(
     """Run the shared LLM indexing flow over cleaned OCR-style pages."""
     logger.info("Task %d: Loaded %d pages", task_id, len(pages))
 
-    analysis_input = build_analysis_input(pages)
     known_authors = _collect_known_authors(db, kb_id, task_id)
-
-    logger.info("Task %d: Running LLM book analysis", task_id)
+    logger.info("Task %d: Running LLM metadata analysis", task_id)
+    metadata_input = build_metadata_input(pages)
     t0 = time.monotonic()
-    book_index = index_book(analysis_input, known_authors=known_authors or None)
+    metadata_result = extract_book_metadata(
+        metadata_input,
+        known_authors=known_authors or None,
+    )
     logger.info(
-        "Task %d: Analysis complete in %.1fs — %d works found, author: %s",
+        "Task %d: Metadata analysis complete in %.1fs — author: %s",
         task_id,
         time.monotonic() - t0,
-        len(book_index.works),
-        book_index.metadata.main_author,
+        metadata_result.metadata.main_author,
     )
 
-    if book_index.toc_find_failed or book_index.toc is None:
-        reason = book_index.toc_failure_reason.strip() or (
-            "LLM could not verify that the extracted candidate TOC pages "
-            "actually contain a table of contents."
+    toc_result = None
+    final_reason = (
+        "LLM could not verify a table of contents from candidate TOC pages, "
+        "the last 15 pages, or the first 15 pages."
+    )
+
+    for mode, label in BOOK_ANALYSIS_STRATEGIES:
+        logger.info("Task %d: Running LLM TOC analysis using %s", task_id, label)
+        analysis_input = build_analysis_input(pages, mode=mode)
+        t0 = time.monotonic()
+        candidate_toc = index_book(analysis_input)
+        logger.info(
+            "Task %d: TOC analysis complete in %.1fs using %s — %d works found",
+            task_id,
+            time.monotonic() - t0,
+            label,
+            len(candidate_toc.works),
         )
-        raise BookIndexingError(f"TOC find failed: {reason}")
+
+        if not candidate_toc.toc_find_failed and candidate_toc.toc is not None:
+            toc_result = candidate_toc
+            break
+
+        reason = candidate_toc.toc_failure_reason.strip()
+        if reason:
+            final_reason = reason
+        logger.info(
+            "Task %d: No TOC confirmed using %s%s",
+            task_id,
+            label,
+            f": {reason}" if reason else "",
+        )
+
+    if toc_result is None:
+        raise BookIndexingError(f"TOC find failed: {final_reason}")
+
+    book_index = BookIndex(
+        summary=metadata_result.summary,
+        metadata=metadata_result.metadata,
+        works=toc_result.works,
+        toc=toc_result.toc,
+        toc_find_failed=toc_result.toc_find_failed,
+        toc_failure_reason=toc_result.toc_failure_reason,
+    )
 
     if not book_index.works:
         raise BookIndexingError(

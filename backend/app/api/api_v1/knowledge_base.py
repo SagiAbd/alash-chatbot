@@ -54,6 +54,12 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def _allow_duplicate_file_name(file_name: str) -> bool:
+    """Return True when admin KB uploads may reuse the same file name."""
+
+    return file_name.strip().lower() == "ocr.json"
+
+
 def _build_upload_result(
     *,
     file_name: str,
@@ -651,37 +657,42 @@ async def upload_kb_documents(
             )
             continue
 
-        existing_by_name = (
-            db.query(Document)
-            .filter(
-                Document.knowledge_base_id == kb_id,
-                Document.file_name == file_name,
-            )
-            .first()
-        )
-        if existing_by_name:
-            results.append(
-                _build_upload_result(
-                    file_name=file_name,
-                    status="conflict",
-                    skip_processing=True,
-                    document_id=existing_by_name.id,
-                    message=(
-                        "A different document with the same file name already "
-                        "exists. Rename the file before uploading."
-                    ),
+        if not _allow_duplicate_file_name(file_name):
+            existing_by_name = (
+                db.query(Document)
+                .filter(
+                    Document.knowledge_base_id == kb_id,
+                    Document.file_name == file_name,
                 )
+                .first()
             )
-            continue
+            if existing_by_name:
+                results.append(
+                    _build_upload_result(
+                        file_name=file_name,
+                        status="conflict",
+                        skip_processing=True,
+                        document_id=existing_by_name.id,
+                        message=(
+                            "A different document with the same file name already "
+                            "exists. Rename the file before uploading."
+                        ),
+                    )
+                )
+                continue
 
         active_upload = (
             db.query(DocumentUpload)
             .filter(
                 DocumentUpload.knowledge_base_id == kb_id,
                 DocumentUpload.status.in_(["pending", "processing"]),
-                or_(
-                    DocumentUpload.file_hash == file_hash,
-                    DocumentUpload.file_name == file_name,
+                (
+                    DocumentUpload.file_hash == file_hash
+                    if _allow_duplicate_file_name(file_name)
+                    else or_(
+                        DocumentUpload.file_hash == file_hash,
+                        DocumentUpload.file_name == file_name,
+                    )
                 ),
             )
             .order_by(DocumentUpload.id.desc())

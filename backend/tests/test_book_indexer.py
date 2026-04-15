@@ -1,12 +1,18 @@
 import unittest
+from unittest.mock import MagicMock, patch
 
 from langchain_core.documents import Document as LangchainDocument
 
+from app.services import document_processor
 from app.services.book_indexer import (
     BookIndex,
     BookMetadata,
+    BookMetadataResult,
+    TOCEntry,
+    TOCSearchResult,
     WorkEntry,
     build_analysis_input,
+    build_metadata_input,
     extract_pages,
     extract_works,
 )
@@ -90,6 +96,166 @@ class BookIndexerTests(unittest.TestCase):
         self.assertIn("--- Page 5 ---", analysis_input)
         self.assertIn("--- Page 6 ---", analysis_input)
         self.assertIn("Мазмұны", analysis_input)
+        self.assertNotIn("First pages:", analysis_input)
+        self.assertNotIn("Last pages:", analysis_input)
+
+    def test_build_metadata_input_uses_first_and_last_context(self) -> None:
+        """Metadata extraction should keep the original first/last context read."""
+
+        pages = [make_page(page, f"Body {page}") for page in range(1, 8)]
+
+        metadata_input = build_metadata_input(pages)
+
+        self.assertIn("First pages:", metadata_input)
+        self.assertIn("Last pages:", metadata_input)
+        self.assertIn("--- Page 1 ---", metadata_input)
+        self.assertIn("--- Page 3 ---", metadata_input)
+        self.assertIn("--- Page 6 ---", metadata_input)
+        self.assertIn("--- Page 7 ---", metadata_input)
+
+    def test_build_analysis_input_uses_last_page_window_when_requested(self) -> None:
+        """Fallback mode should expose the trailing page window to the LLM."""
+
+        pages = [make_page(page, f"Body {page}") for page in range(1, 21)]
+
+        analysis_input = build_analysis_input(pages, mode="last_pages", window_size=15)
+
+        self.assertIn("Last 15 pages:", analysis_input)
+        self.assertIn("--- Page 6 ---", analysis_input)
+        self.assertIn("--- Page 20 ---", analysis_input)
+        self.assertNotIn("--- Page 5 ---\nBody 5", analysis_input)
+        self.assertNotIn("First pages:", analysis_input)
+
+    def test_build_analysis_input_uses_first_page_window_when_requested(self) -> None:
+        """Final fallback mode should expose the leading page window to the LLM."""
+
+        pages = [make_page(page, f"Body {page}") for page in range(1, 21)]
+
+        analysis_input = build_analysis_input(pages, mode="first_pages", window_size=15)
+
+        self.assertIn("First 15 pages:", analysis_input)
+        self.assertIn("--- Page 1 ---", analysis_input)
+        self.assertIn("--- Page 15 ---", analysis_input)
+        self.assertNotIn("--- Page 16 ---\nBody 16", analysis_input)
+        self.assertNotIn("Last pages:", analysis_input)
+
+    @patch("app.services.document_processor.extract_pages")
+    @patch("app.services.document_processor.extract_works")
+    @patch("app.services.document_processor.index_book")
+    @patch("app.services.document_processor.extract_book_metadata")
+    @patch("app.services.document_processor._collect_known_authors")
+    def test_analyze_book_pages_falls_back_from_toc_to_last_pages(
+        self,
+        mock_collect_known_authors: MagicMock,
+        mock_extract_book_metadata: MagicMock,
+        mock_index_book: MagicMock,
+        mock_extract_works: MagicMock,
+        mock_extract_pages: MagicMock,
+    ) -> None:
+        """The processor should retry on the last-page window after TOC failure."""
+
+        mock_collect_known_authors.return_value = []
+        mock_extract_book_metadata.return_value = BookMetadataResult(
+            summary="summary",
+            metadata=BookMetadata(book_title="Book", main_author="Author"),
+        )
+        mock_index_book.side_effect = [
+            TOCSearchResult(
+                works=[],
+                toc=None,
+                toc_find_failed=True,
+                toc_failure_reason="No TOC in candidate set",
+            ),
+            TOCSearchResult(
+                works=[WorkEntry(title="Work", start_page=10, end_page=12)],
+                toc=TOCEntry(title="Мазмұны", start_page=9, end_page=9),
+            ),
+        ]
+        mock_extract_works.return_value = [make_page(10, "Work body. " * 10)]
+        mock_extract_pages.return_value = [make_page(10, "Page body. " * 10)]
+
+        pages = [make_page(page, f"Body {page}") for page in range(1, 25)]
+        db = MagicMock()
+
+        analysis, work_docs, page_docs, final_file_name = (
+            document_processor._analyze_book_pages(
+                db=db,
+                kb_id=1,
+                task_id=2,
+                file_name="book.json",
+                pages=pages,
+                display_suffix=".json",
+            )
+        )
+
+        self.assertEqual("Author", analysis["metadata"]["main_author"])
+        self.assertEqual(1, len(work_docs))
+        self.assertEqual(1, len(page_docs))
+        self.assertEqual("Author - Book.json", final_file_name)
+        self.assertEqual(2, mock_index_book.call_count)
+        metadata_input = mock_extract_book_metadata.call_args.args[0]
+        first_input = mock_index_book.call_args_list[0].args[0]
+        second_input = mock_index_book.call_args_list[1].args[0]
+        self.assertIn("First pages:", metadata_input)
+        self.assertIn("Last pages:", metadata_input)
+        self.assertIn("Candidate TOC pages:", first_input)
+        self.assertIn("Last 15 pages:", second_input)
+
+    @patch("app.services.document_processor.index_book")
+    @patch("app.services.document_processor.extract_book_metadata")
+    @patch("app.services.document_processor._collect_known_authors")
+    def test_analyze_book_pages_fails_after_all_three_toc_attempts(
+        self,
+        mock_collect_known_authors: MagicMock,
+        mock_extract_book_metadata: MagicMock,
+        mock_index_book: MagicMock,
+    ) -> None:
+        """The processor should fail only after all three TOC attempts."""
+
+        mock_collect_known_authors.return_value = []
+        mock_extract_book_metadata.return_value = BookMetadataResult(
+            summary="summary",
+            metadata=BookMetadata(book_title="Book", main_author="Author"),
+        )
+        mock_index_book.side_effect = [
+            TOCSearchResult(
+                works=[],
+                toc=None,
+                toc_find_failed=True,
+                toc_failure_reason="Candidate TOC failed",
+            ),
+            TOCSearchResult(
+                works=[],
+                toc=None,
+                toc_find_failed=True,
+                toc_failure_reason="Last pages failed",
+            ),
+            TOCSearchResult(
+                works=[],
+                toc=None,
+                toc_find_failed=True,
+                toc_failure_reason="First pages failed",
+            ),
+        ]
+
+        pages = [make_page(page, f"Body {page}") for page in range(1, 25)]
+
+        with self.assertRaisesRegex(
+            document_processor.BookIndexingError,
+            "TOC find failed: First pages failed",
+        ):
+            document_processor._analyze_book_pages(
+                db=MagicMock(),
+                kb_id=1,
+                task_id=2,
+                file_name="book.json",
+                pages=pages,
+                display_suffix=".json",
+            )
+
+        self.assertEqual(3, mock_index_book.call_count)
+        third_input = mock_index_book.call_args_list[2].args[0]
+        self.assertIn("First 15 pages:", third_input)
 
 
 if __name__ == "__main__":

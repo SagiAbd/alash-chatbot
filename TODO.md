@@ -15,6 +15,8 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 
 ### Done
 
+- allow admin KB uploads to reuse the `ocr.json` file name when content differs
+- add TOC indexing fallback flow: candidate TOC pages, then last 15 pages, then first 15 pages
 - Add local login and registration  
 - set admin and avg user permissions  
 - add admin-only access, settings, and public chatbot kb selection  

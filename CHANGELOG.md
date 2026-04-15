@@ -1,5 +1,15 @@
 # Changelog
 
+## [2026-04-16]
+
+### Improved
+- Split book indexing into two LLM steps: first/last pages for summary and book metadata, then a dedicated TOC search flow for works extraction
+- Changed TOC discovery to retry in three stages: candidate TOC pages first, then the last 15 pages, then the first 15 pages before failing
+
+### Fixed
+- Allowed admin knowledge-base uploads to reuse the `ocr.json` file name when the content differs, while still deduplicating identical files by hash
+- Added regression coverage for the restored metadata prompt plus the new TOC fallback order so uploads only fail after all three discovery attempts are exhausted
+
 ## [2026-04-15]
 
 ### Fixed
