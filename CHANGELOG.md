@@ -7,6 +7,7 @@
 - Renamed the frontend package from `rag-web-ui-frontend` to `alash-chatbot-frontend` and localized the public chat's setup placeholder text
 - Rewired the remaining dashboard UI actions and redirects so chat and knowledge-base flows now land on `/admin/...` routes consistently during the legacy-dashboard transition
 - Polished the public-facing copy by switching landing/chat entry labels to Kazakh, localizing public chat fallback/error text, and setting the app document language metadata to `kk`
+- Simplified the public landing page by removing the top-left branding block, deleting the three feature cards and availability badge, and renaming the login CTA to `Жүйеге кіру`
 
 ## [2026-04-14]
 
