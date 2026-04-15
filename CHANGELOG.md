@@ -3,6 +3,7 @@
 ## [2026-04-15]
 
 ### Improved
+- Replaced the outdated root README with a repo-accurate guide covering the public/admin route split, current no-vector-store architecture, local startup, admin bootstrap, and the current dev URLs
 - Replaced the admin sidebar's old image-logo usage with a consistent Alash text mark, added a direct "Open public site" admin navigation link, and aligned public/admin entry screens with the same branding treatment
 - Renamed the frontend package from `rag-web-ui-frontend` to `alash-chatbot-frontend` and localized the public chat's setup placeholder text
 - Rewired the remaining dashboard UI actions and redirects so chat and knowledge-base flows now land on `/admin/...` routes consistently during the legacy-dashboard transition

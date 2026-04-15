@@ -1,360 +1,210 @@
-<div align="center">
-  <img src="./docs/images/github-cover-new.png" alt="RAG Web UI Demo">
-  <br />
-  <p>
-    <strong>Knowledge Base Management Based on RAG (Retrieval-Augmented Generation)</strong>
-  </p>
+# alash-chatbot
 
-  <p>
-    <a href="https://github.com/rag-web-ui/rag-web-ui/blob/main/LICENSE"><img src="https://img.shields.io/github/license/rag-web-ui/rag-web-ui" alt="License"></a>
-    <a href="#"><img src="https://img.shields.io/badge/python-3.9+-blue.svg" alt="Python"></a>
-    <a href="#"><img src="https://img.shields.io/badge/node-%3E%3D18-green.svg" alt="Node"></a>
-    <a href="#"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome"></a>
-    <a href="#"><img src="https://github.com/rag-web-ui/rag-web-ui/actions/workflows/test.yml/badge.svg" alt="CI"></a>
-  </p>
+Public-facing Kazakh chatbot plus an admin knowledge-base console for the
+Alash corpus.
 
-  <p>
-    <a href="#features">Features</a> •
-    <a href="#quick-start">Quick Start</a> •
-    <a href="#deployment-guide">Deployment</a> •
-    <a href="#architecture">Architecture</a> •
-    <a href="#development">Development</a> •
-    <a href="#contributing">Contributing</a> •
-    <a href="https://deepwiki.com/rag-web-ui/rag-web-ui" target="_blank">DeepWiki</a>
-  </p>
-</div>
+The project has two user experiences:
 
-## 📖 Introduction
-RAG Web UI is an intelligent dialogue system based on RAG (Retrieval-Augmented Generation) technology that helps build intelligent Q&A systems based on your own knowledge base. By combining document retrieval and large language models, it achieves accurate and reliable knowledge-based question answering services.
+- Public site: a lightweight landing page and public chat at `/` and `/chat`
+- Admin console: protected management flows at `/admin/...` for knowledge
+  bases, chats, and public-chat settings
 
-The system supports multiple **LLM** deployment options, including cloud services like **OpenAI** and **DeepSeek**, as well as local model deployment through **Ollama**, meeting privacy and cost requirements in different scenarios.
+The backend uses FastAPI, SQLAlchemy, MySQL, MinIO, LangGraph, and multiple LLM
+providers. The frontend uses Next.js 14, TypeScript, Tailwind CSS, and the
+Vercel AI SDK.
 
-It also provides OpenAPI interfaces for convenient knowledge base access via API calls.
+## Important note
 
-## ✨ Features
-- 📚 **Intelligent Document Management**
-  - Support for multiple document formats (PDF, DOCX, Markdown, Text)
-  - Automatic document chunking and vectorization
-  - Support for async document processing and incremental updates
+This codebase no longer uses vector-store retrieval.
 
-- 🤖 **Advanced Dialogue Engine**
-  - Precise retrieval and generation based on RAG
-  - Support for multi-turn contextual dialogue
-  - Support for reference citations in conversations
+- Do not use ChromaDB, Qdrant, or any vector store in this project
+- Retrieval is being handled through the current non-vector, agent-driven flow
+- Some legacy vector-store configuration still exists in `.env.example` and old
+  compose comments, but it is not part of the intended runtime path
 
-- 🎯 **Robust Architecture**
-  - Frontend-backend separation design
-  - Distributed file storage
-  - High-performance vector database: Support for ChromaDB, Qdrant with easy switching through Factory pattern
+## Current product shape
 
-## 🖼️ Screenshots
+### Public experience
 
-<div align="center">
-  <img src="./docs/images/screenshot1.png" alt="Knowledge Base Management" width="800">
-  <p><em>Knowledge Base Management Dashboard</em></p>
-  
-  <img src="./docs/images/screenshot2.png" alt="Chat Interface" width="800">
-  <p><em>Document Processing Dashboard</em></p>
-  
-  <img src="./docs/images/screenshot3.png" alt="Document Processing" width="800">
-  <p><em>Document List</em></p>
-  
-  <img src="./docs/images/screenshot4.png" alt="System Settings" width="800">
-  <p><em>Intelligent Chat Interface with References</em></p>
-  
-  <img src="./docs/images/screenshot5.png" alt="Analytics Dashboard" width="800">
-  <p><em>API Key Management</em></p>
+- Kazakh landing page at `/`
+- Public chat at `/chat`
+- Each page refresh starts a new public chat session
+- Public chat availability is controlled by admin settings
 
-  <img src="./docs/images/screenshot6.png" alt="Analytics Dashboard" width="800">
-  <p><em>API Reference</em></p>
-</div>
+### Admin experience
 
- ##  Project Flowchart
- 
-```mermaid
-graph TB
-    %% Role Definitions
-    client["Caller/User"]
-    open_api["Open API"]
-    
-    subgraph import_process["Document Ingestion Process"]
-        direction TB
-        %% File Storage and Document Processing Flow
-        docs["Document Input<br/>(PDF/MD/TXT/DOCX)"]
-        job_id["Return Job ID"]
-        
-        nfs["NFS"]
+- Admin login at `/admin/login`
+- Admin dashboard at `/admin`
+- Knowledge-base management at `/admin/knowledge`
+- Admin chat at `/admin/chat`
+- Public-chat settings at `/admin/settings`
 
-        subgraph async_process["Asynchronous Document Processing"]
-            direction TB
-            preprocess["Document Preprocessing<br/>(Text Extraction/Cleaning)"]
-            split["Text Splitting<br/>(Segmentation/Overlap)"]
-            
-            subgraph embedding_process["Embedding Service"]
-                direction LR
-                embedding_api["Embedding API"] --> embedding_server["Embedding Server"]
-            end
-            
-            store[(Vector Database)]
-            
-            %% Internal Flow of Asynchronous Processing
-            preprocess --> split
-            split --> embedding_api
-            embedding_server --> store
-        end
-        
-        subgraph job_query["Job Status Query"]
-            direction TB
-            job_status["Job Status<br/>(Processing/Completed/Failed)"]
-        end
-    end
-    
-    %% Query Service Flow  
-    subgraph query_process["Query Service"]
-        direction LR
-        user_history["User History"] --> query["User Query<br/>(Based on User History)"]
-        query --> query_embed["Query Embedding"]
-        query_embed --> retrieve["Vector Retrieval"]
-        retrieve --> rerank["Re-ranking<br/>(Cross-Encoder)"]
-        rerank --> context["Context Assembly"]
-        context --> llm["LLM Generation"]
-        llm --> response["Final Response"]
-        query -.-> rerank
-    end
-    
-    %% Main Flow Connections
-    client --> |"1.Upload Document"| docs
-    docs --> |"2.Generate"| job_id
-    docs --> |"3a.Trigger"| async_process
-    job_id --> |"3b.Return"| client
-    docs --> nfs
-    nfs --> preprocess
+### Backend capabilities
 
-    %% Open API Retrieval Flow
-    open_api --> |"Retrieve Context"| retrieval_service["Retrieval Service"]
-    retrieval_service --> |"Access"| store
-    retrieval_service --> |"Return Context"| open_api
+- Document upload and async processing
+- Persistent chat transcripts
+- Streaming answers
+- Public chatbot KB selection
+- Runtime-configurable welcome text and chat provider/model settings
+- Admin bootstrap from env or CLI
 
-    %% Status Query Flow
-    client --> |"4.Poll"| job_status
-    job_status --> |"5.Return Progress"| client
-    
-    %% Database connects to Query Service
-    store --> retrieve
+## Architecture
 
-    %% Style Definitions (Adjusted to match GitHub theme colors)
-    classDef process fill:#d1ecf1,stroke:#0077b6,stroke-width:1px
-    classDef database fill:#e2eafc,stroke:#003566,stroke-width:1px
-    classDef input fill:#caf0f8,stroke:#0077b6,stroke-width:1px
-    classDef output fill:#ffc8dd,stroke:#d00000,stroke-width:1px
-    classDef rerank fill:#cdb4db,stroke:#5a189a,stroke-width:1px
-    classDef async fill:#f8edeb,stroke:#7f5539,stroke-width:1px,stroke-dasharray: 5 5
-    classDef actor fill:#fefae0,stroke:#606c38,stroke-width:1px
-    classDef jobQuery fill:#ffedd8,stroke:#ca6702,stroke-width:1px
-    classDef queryProcess fill:#d8f3dc,stroke:#40916c,stroke-width:1px
-    classDef embeddingService fill:#ffe5d9,stroke:#9d0208,stroke-width:1px
-    classDef importProcess fill:#e5e5e5,stroke:#495057,stroke-width:1px
+### Backend
 
-    %% Applying classes to nodes
-    class docs,query,retrieval_service input
-    class preprocess,split,query_embed,retrieve,context,llm process
-    class store,nfs database
-    class response,job_id,job_status output
-    class rerank rerank
-    class async_process async
-    class client,open_api actor
-    class job_query jobQuery
-    style query_process fill:#d8f3dc,stroke:#40916c,stroke-width:1px
-    style embedding_process fill:#ffe5d9,stroke:#9d0208,stroke-width:1px
-    style import_process fill:#e5e5e5,stroke:#495057,stroke-width:1px
-    style job_query fill:#ffedd8,stroke:#ca6702,stroke-width:1px
-```
+- FastAPI
+- SQLAlchemy + MySQL
+- LangChain + LangGraph
+- MinIO object storage
+- Alembic migrations
 
-## 🚀 Quick Start
+### Frontend
+
+- Next.js 14 App Router
+- TypeScript
+- Tailwind CSS
+- Shadcn/UI primitives
+- Vercel AI SDK
+
+### Storage and retrieval
+
+- MySQL for application data
+- MinIO for uploaded source files
+- Non-vector retrieval path for the chatbot
+
+## Quick start
 
 ### Prerequisites
 
-- Docker & Docker Compose v2.0+
+- Docker and Docker Compose v2+
 - Node.js 18+
 - Python 3.9+
-- 8GB+ RAM
 
-### Installation
-
-1. Clone the repository
-```bash
-git clone https://github.com/rag-web-ui/rag-web-ui.git
-cd rag-web-ui
-```
-
-2. Configure environment variables
-
-You can check the details in the configuration table below.
+### 1. Configure environment variables
 
 ```bash
 cp .env.example .env
 ```
 
-3. Start services(development server)
-```bash
-docker compose up -d --build
-```
+At minimum, review and set:
 
-### Verification
+- `CHAT_PROVIDER`
+- provider API keys and model vars for the provider you choose
+- `SECRET_KEY`
+- `ADMIN_USERNAME`
+- `ADMIN_EMAIL`
+- `ADMIN_PASSWORD`
 
-Access the following URLs after service startup:
-
-- 🌐 Frontend UI: http://127.0.0.1.nip.io
-- 📚 API Documentation: http://127.0.0.1.nip.io/redoc
-- 💾 MinIO Console: http://127.0.0.1.nip.io:9001
-
-## 🏗️ Architecture
-
-### Backend Stack
-
-- 🐍 **Python FastAPI**: High-performance async web framework
-- 🗄️ **MySQL + ChromaDB**: Relational + Vector databases
-- 📦 **MinIO**: Distributed object storage
-- 🔗 **Langchain**: LLM application framework
-- 🔒 **JWT + OAuth2**: Authentication
-
-### Frontend Stack
-
-- ⚛️ **Next.js 14**: React framework
-- 📘 **TypeScript**: Type safety
-- 🎨 **Tailwind CSS**: Utility-first CSS
-- 🎯 **Shadcn/UI**: High-quality components
-- 🤖 **Vercel AI SDK**: AI integration
-
-## 📈 Performance Optimization
-
-The system is optimized in the following aspects:
-
-- ⚡️ Incremental document processing and async chunking
-- 🔄 Streaming responses and real-time feedback
-- 📑 Vector database performance tuning
-- 🎯 Distributed task processing
-
-## 📖 Development Guide
+### 2. Start the dev stack
 
 ```bash
-docker compose -f docker-compose.dev.yml up -d --build
+docker compose -f docker-compose.dev.yml up --build
 ```
 
-## 🔧 Configuration
+### 3. Open the app
 
-### Core Configuration
+- Public site: `http://127.0.0.1.nip.io`
+- Public chat: `http://127.0.0.1.nip.io/chat`
+- Admin login: `http://127.0.0.1.nip.io/admin/login`
+- API docs: `http://127.0.0.1.nip.io/redoc`
+- OpenAPI JSON: `http://127.0.0.1.nip.io/openapi.json`
+- MinIO console: `http://127.0.0.1.nip.io:9001`
 
-| Parameter                   | Description                | Default   | Required |
-| --------------------------- | -------------------------- | --------- | -------- |
-| MYSQL_SERVER                | MySQL Server Address       | localhost | ✅        |
-| MYSQL_USER                  | MySQL Username             | postgres  | ✅        |
-| MYSQL_PASSWORD              | MySQL Password             | postgres  | ✅        |
-| MYSQL_DATABASE              | MySQL Database Name        | ragwebui  | ✅        |
-| SECRET_KEY                  | JWT Secret Key             | -         | ✅        |
-| ACCESS_TOKEN_EXPIRE_MINUTES | JWT Token Expiry (minutes) | 30        | ✅        |
+## Local development
 
-### LLM Configuration
+### Full stack
 
-| Parameter         | Description           | Default                   | Applicable            |
-| ----------------- | --------------------- | ------------------------- | --------------------- |
-| CHAT_PROVIDER     | LLM Service Provider  | openai                    | ✅                     |
-| OPENAI_API_KEY    | OpenAI API Key        | -                         | Required for OpenAI   |
-| OPENAI_API_BASE   | OpenAI API Base URL   | https://api.openai.com/v1 | Optional for OpenAI   |
-| OPENAI_MODEL      | OpenAI Model Name     | gpt-4                     | Required for OpenAI   |
-| DEEPSEEK_API_KEY  | DeepSeek API Key      | -                         | Required for DeepSeek |
-| DEEPSEEK_API_BASE | DeepSeek API Base URL | -                         | Required for DeepSeek |
-| DEEPSEEK_MODEL    | DeepSeek Model Name   | -                         | Required for DeepSeek |
-| OLLAMA_API_BASE   | Ollama API Base URL   | http://localhost:11434    | Required for Ollama   |
-| OLLAMA_MODEL      | Ollama Model Name     | llama2                    | Required for Ollama   |
+```bash
+docker compose -f docker-compose.dev.yml up
+```
 
-### Embedding Configuration
+### Backend only
 
-| Parameter                   | Description                | Default                | Applicable                    |
-| --------------------------- | -------------------------- | ---------------------- | ----------------------------- |
-| EMBEDDINGS_PROVIDER         | Embedding Service Provider | openai                 | ✅                             |
-| OPENAI_API_KEY              | OpenAI API Key             | -                      | Required for OpenAI Embedding |
-| OPENAI_EMBEDDINGS_MODEL     | OpenAI Embedding Model     | text-embedding-ada-002 | Required for OpenAI Embedding |
-| DASH_SCOPE_API_KEY          | DashScope API Key          | -                      | Required for DashScope        |
-| DASH_SCOPE_EMBEDDINGS_MODEL | DashScope Embedding Model  | -                      | Required for DashScope        |
-| OLLAMA_EMBEDDINGS_MODEL     | Ollama Embedding Model     | deepseek-r1:7b         | Required for Ollama Embedding |
+```bash
+cd backend
+uv sync
+uv run uvicorn app.main:app --reload --port 8000
+```
 
-### Vector Database Configuration
+### Frontend only
 
-| Parameter          | Description                       | Default               | Applicable            |
-| ------------------ | --------------------------------- | --------------------- | --------------------- |
-| VECTOR_STORE_TYPE  | Vector Store Type                 | chroma                | ✅                     |
-| CHROMA_DB_HOST     | ChromaDB Server Address           | localhost             | Required for ChromaDB |
-| CHROMA_DB_PORT     | ChromaDB Port                     | 8000                  | Required for ChromaDB |
-| QDRANT_URL         | Qdrant Vector Store URL           | http://localhost:6333 | Required for Qdrant   |
-| QDRANT_PREFER_GRPC | Prefer gRPC Connection for Qdrant | true                  | Optional for Qdrant   |
+```bash
+cd frontend
+pnpm install
+pnpm dev
+```
 
-### Object Storage Configuration
+## Admin bootstrap
 
-| Parameter         | Description          | Default        | Required |
-| ----------------- | -------------------- | -------------- | -------- |
-| MINIO_ENDPOINT    | MinIO Server Address | localhost:9000 | ✅        |
-| MINIO_ACCESS_KEY  | MinIO Access Key     | minioadmin     | ✅        |
-| MINIO_SECRET_KEY  | MinIO Secret Key     | minioadmin     | ✅        |
-| MINIO_BUCKET_NAME | MinIO Bucket Name    | documents      | ✅        |
+The backend automatically attempts to create or update the initial admin user
+from these env vars on startup:
 
-### Other Configuration
+- `ADMIN_USERNAME`
+- `ADMIN_EMAIL`
+- `ADMIN_PASSWORD`
 
-| Parameter | Description      | Default       | Required |
-| --------- | ---------------- | ------------- | -------- |
-| TZ        | Timezone Setting | Asia/Shanghai | ❌        |
+You can also bootstrap manually:
 
-## 🤝 Contributing
+```bash
+cd backend
+uv run python scripts/bootstrap_admin.py \
+  --username admin \
+  --email admin@example.com \
+  --password Admin12345
+```
 
-We welcome community contributions!
+## Configuration highlights
 
-### Contribution Process
+### LLM providers
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to branch (`git push origin feature/AmazingFeature`)
-5. Create a Pull Request
+Supported chat/provider configuration in this repo includes:
 
-### Development Guidelines
+- OpenAI
+- DeepSeek
+- Ollama
+- OpenRouter
+- DashScope
 
-- Follow [Python PEP 8](https://pep8.org/) coding standards
-- Follow [Conventional Commits](https://www.conventionalcommits.org/)
+The active chat provider is selected with `CHAT_PROVIDER`.
 
-### 🚧 Roadmap
+### App settings
 
-- [x] Knowledge Base API Integration
-- [ ] Workflow By Natural Language
-- [ ] Multi-path Retrieval
-- [x] Support Multiple Models
-- [x] Support Multiple Vector Databases
+Admin settings persist:
 
-## 🔧 Troubleshooting
+- `public_kb_id`
+- `chat_provider`
+- `chat_model`
+- `welcome_title`
+- `welcome_text`
 
-For common issues and solutions, please refer to our [Troubleshooting Guide](docs/troubleshooting.md).
+## Project layout
 
-## 📄 License
+```text
+backend/
+  app/
+    api/api_v1/         API routes
+    core/               config, security, MinIO
+    models/             SQLAlchemy models
+    schemas/            Pydantic schemas
+    services/           chat, agent, document processing, settings
+    startup/            startup migration flow
+  scripts/
+    bootstrap_admin.py  create/update admin user
 
-This project is licensed under the [Apache-2.0 License](LICENSE)
+frontend/
+  src/app/              Next.js routes
+  src/components/       UI components
+  src/lib/              API helpers and utilities
+```
 
-## Note
+## Notes for contributors
 
-This project is for learning and sharing RAG knowledge only. Please do not use it for commercial purposes. It is not ready for production use and is still under active development.
+- Keep the public/admin split intact
+- Treat server-side auth as authoritative
+- Do not reintroduce vector-store retrieval
+- Keep `TODO.md` updated when working on tracked tasks
+- Update `CHANGELOG.md` after meaningful changes
 
-## 🙏 Acknowledgments
+## License
 
-Thanks to these open source projects:
-
-- [FastAPI](https://fastapi.tiangolo.com/)
-- [Langchain](https://python.langchain.com/)
-- [Next.js](https://nextjs.org/)
-- [ChromaDB](https://www.trychroma.com/)
-
-
-![star history](https://api.star-history.com/svg?repos=rag-web-ui/rag-web-ui&type=Date)
-
----
-
-<div align="center">
-  If this project helps you, please consider giving it a ⭐️
-</div>
+This project is licensed under the [Apache-2.0 License](LICENSE).
