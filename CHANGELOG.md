@@ -10,6 +10,9 @@
 - Simplified the public landing page by removing the top-left branding block, deleting the three feature cards and availability badge, and renaming the login CTA to `Жүйеге кіру`
 - Removed the final public landing page CTA panel so the homepage now ends after the main hero content
 
+### Fixed
+- Matched public chat streaming behavior to the admin chat by hiding empty assistant bubbles during think-only phases and showing the `Ойланудамын` status card only until visible answer text starts streaming
+
 ## [2026-04-14]
 
 ### Fixed

@@ -140,6 +140,15 @@ export default function PublicChatPage() {
   };
 
   const lastMessage = messages[messages.length - 1];
+  const lastVisibleAssistantContent =
+    lastMessage?.role === "assistant"
+      ? getVisibleAssistantContent(lastMessage.content)
+      : "";
+  const showLoadingStatus =
+    isLoading &&
+    (!lastMessage ||
+      lastMessage.role !== "assistant" ||
+      lastVisibleAssistantContent.length === 0);
 
   return (
     <main className="min-h-screen bg-gray-50 text-black">
@@ -187,7 +196,7 @@ export default function PublicChatPage() {
               </div>
             )}
 
-            {messages.map((message) => {
+            {messages.map((message, index) => {
               if (message.role === "user") {
                 return (
                   <div key={message.id} className="flex justify-end">
@@ -202,6 +211,12 @@ export default function PublicChatPage() {
                 );
               }
 
+              const visibleContent = getVisibleAssistantContent(message.content);
+
+              if (!visibleContent) {
+                return null;
+              }
+
               return (
                 <div key={message.id} className="flex items-start gap-3">
                   <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0 mt-1 shadow-sm">
@@ -209,15 +224,15 @@ export default function PublicChatPage() {
                   </div>
                   <div className="max-w-[90%] rounded-2xl border bg-card px-4 py-3 shadow-sm">
                     <Answer
-                      markdown={getVisibleAssistantContent(message.content)}
-                      isStreaming={isLoading && message.id === lastMessage?.id}
+                      markdown={visibleContent}
+                      isStreaming={isLoading && index === messages.length - 1}
                     />
                   </div>
                 </div>
               );
             })}
 
-            {isLoading && (
+            {showLoadingStatus && (
               <div className="flex items-start gap-3">
                 <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0 mt-1 shadow-sm">
                   <Bot className="h-4 w-4 text-muted-foreground" />
