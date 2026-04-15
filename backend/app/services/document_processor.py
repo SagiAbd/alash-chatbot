@@ -22,16 +22,29 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.minio import get_minio_client
 from app.db.session import SessionLocal
-from app.models.knowledge import Document, DocumentChunk, ProcessingTask
+from app.models.knowledge import Document, DocumentChunk, KnowledgeBase, ProcessingTask
 from app.services.book_indexer import (
     BookIndexingError,
     build_analysis_input,
+    clean_page_text,
     extract_pages,
     extract_works,
     index_book,
     load_pages_from_json,
 )
+from app.services.ingestion.docx_loader import extract_pages_from_docx
+from app.services.ingestion.pdf_ocr import extract_pages_from_pdf
 from app.services.xlsx_processor import parse_glossary_xlsx
+
+# Upload extensions permitted for end users uploading to their personal library.
+PERSONAL_UPLOAD_EXTENSIONS: tuple[str, ...] = (".docx", ".pdf")
+
+_CONTENT_TYPE_BY_EXT: dict[str, str] = {
+    ".json": "application/json",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".pdf": "application/pdf",
+}
 
 logger = logging.getLogger(__name__)
 
@@ -172,9 +185,7 @@ async def upload_document(file: UploadFile, kb_id: int) -> UploadResult:
     object_path = f"kb_{kb_id}/{file_name}"
 
     _, ext = os.path.splitext(file_name)
-    content_type = (
-        "application/json" if ext.lower() == ".json" else "application/octet-stream"
-    )
+    content_type = _CONTENT_TYPE_BY_EXT.get(ext.lower(), "application/octet-stream")
 
     minio_client = get_minio_client()
     try:
@@ -373,6 +384,189 @@ def _process_xlsx_document(
         raise
 
 
+def _process_personal_document(
+    task: "ProcessingTask",
+    db: Session,
+    temp_path: str,
+    file_name: str,
+    kb_id: int,
+    minio_client: object,
+    local_temp_path: str,
+) -> None:
+    """Process a user-uploaded ``.docx`` or ``.pdf`` into page-level chunks.
+
+    Personal uploads skip the LLM book-indexer path (which requires a table of
+    contents) and land as raw page chunks. ``.pdf`` files are OCR'd via the
+    configured vision LLM, one request per page, concurrently.
+    """
+    task_id = task.id
+    permanent_path: str | None = None
+    document_id: int | None = None
+    ext = os.path.splitext(file_name)[1].lower()
+
+    try:
+        try:
+            minio_client.fget_object(
+                bucket_name=settings.MINIO_BUCKET_NAME,
+                object_name=temp_path,
+                file_path=local_temp_path,
+            )
+        except MinioException as exc:
+            raise BookIndexingError(
+                f"Failed to download personal upload from MinIO: {exc}"
+            ) from exc
+
+        logger.info("Task %d: Extracting pages from %s", task_id, ext)
+        t0 = time.monotonic()
+        if ext == ".docx":
+            pages = extract_pages_from_docx(local_temp_path)
+        elif ext == ".pdf":
+            pages = extract_pages_from_pdf(local_temp_path)
+        else:
+            raise BookIndexingError(
+                f"Unsupported personal upload extension: {ext}. "
+                f"Allowed: {', '.join(PERSONAL_UPLOAD_EXTENSIONS)}"
+            )
+
+        cleaned_pages = [
+            {
+                "page": int(p.get("page", idx + 1)),
+                "text": clean_page_text(p.get("text", "")),
+            }
+            for idx, p in enumerate(pages)
+        ]
+        cleaned_pages = [p for p in cleaned_pages if p["text"]]
+        if not cleaned_pages:
+            raise BookIndexingError(
+                "No readable text was extracted from the uploaded file."
+            )
+        logger.info(
+            "Task %d: Extracted %d pages in %.1fs",
+            task_id,
+            len(cleaned_pages),
+            time.monotonic() - t0,
+        )
+
+        existing_document = _find_document_conflict(
+            db,
+            kb_id,
+            task.document_upload.file_hash,
+            file_name,
+        )
+        if existing_document:
+            minio_client.remove_object(settings.MINIO_BUCKET_NAME, temp_path)
+            _mark_task_completed_with_existing_document(
+                db, task_id, existing_document.id
+            )
+            logger.info(
+                "Task %d: Reused existing personal document %d",
+                task_id,
+                existing_document.id,
+            )
+            return
+
+        temp_object_name = temp_path.split("/")[-1]
+        permanent_path = f"kb_{kb_id}/{temp_object_name}"
+        try:
+            minio_client.copy_object(
+                bucket_name=settings.MINIO_BUCKET_NAME,
+                object_name=permanent_path,
+                source=CopySource(settings.MINIO_BUCKET_NAME, temp_path),
+            )
+            minio_client.remove_object(settings.MINIO_BUCKET_NAME, temp_path)
+        except MinioException as exc:
+            raise BookIndexingError(
+                f"Failed to move personal upload to permanent storage: {exc}"
+            ) from exc
+
+        analysis = {
+            "type": "personal_document",
+            "source_format": ext.lstrip("."),
+            "page_count": len(cleaned_pages),
+        }
+        document = Document(
+            file_name=file_name,
+            file_path=permanent_path,
+            file_hash=task.document_upload.file_hash,
+            file_size=task.document_upload.file_size,
+            content_type=task.document_upload.content_type,
+            knowledge_base_id=kb_id,
+            analysis=analysis,
+        )
+        db.add(document)
+        db.commit()
+        db.refresh(document)
+        document_id = document.id
+        task.document_id = document.id
+        db.commit()
+        logger.info(
+            "Task %d: Personal document created (id=%d)",
+            task_id,
+            document.id,
+        )
+
+        t0 = time.monotonic()
+        for i, page in enumerate(cleaned_pages):
+            page_number = int(page["page"])
+            page_content = page["text"]
+            chunk_id = hashlib.sha256(
+                f"page:{kb_id}:{file_name}:{page_number}:{page_content[:200]}".encode()
+            ).hexdigest()
+            metadata = {
+                "kb_id": kb_id,
+                "document_id": document.id,
+                "chunk_id": chunk_id,
+                "chunk_type": "page",
+                "page_number": page_number,
+                "page_content": page_content,
+                "file_name": file_name,
+            }
+            db.add(
+                DocumentChunk(
+                    id=chunk_id,
+                    document_id=document.id,
+                    kb_id=kb_id,
+                    file_name=file_name,
+                    chunk_type="page",
+                    chunk_label=f"Page {page_number}",
+                    page_number=page_number,
+                    start_page=page_number,
+                    end_page=page_number,
+                    chunk_metadata=metadata,
+                    hash=hashlib.sha256(
+                        (page_content + str(metadata)).encode()
+                    ).hexdigest(),
+                )
+            )
+            if i > 0 and i % 100 == 0:
+                db.commit()
+
+        db.commit()
+        logger.info(
+            "Task %d: Stored %d personal page chunks in %.1fs",
+            task_id,
+            len(cleaned_pages),
+            time.monotonic() - t0,
+        )
+
+        task.status = "completed"
+        task.document_id = document.id
+        upload = task.document_upload
+        if upload:
+            upload.status = "completed"
+        db.commit()
+        logger.info("Task %d: Personal document processing completed", task_id)
+    except Exception:
+        db.rollback()
+        _cleanup_failed_processing(
+            db,
+            document_id=document_id,
+            temp_path=temp_path,
+            permanent_path=permanent_path,
+        )
+        raise
+
+
 def process_document_background(
     temp_path: str,
     file_name: str,
@@ -416,9 +610,25 @@ def process_document_background(
 
         minio_client = get_minio_client()
 
+        kb = db.query(KnowledgeBase).filter(KnowledgeBase.id == kb_id).first()
+        is_personal_kb = bool(kb and kb.is_personal)
+
         # Route xlsx files to the glossary processor
         if file_name.lower().endswith(".xlsx"):
             _process_xlsx_document(
+                task, db, temp_path, file_name, kb_id, minio_client, local_temp_path
+            )
+            return
+
+        # Route personal-KB uploads (.docx, .pdf) through the page-chunk processor
+        if is_personal_kb:
+            ext = os.path.splitext(file_name)[1].lower()
+            if ext not in PERSONAL_UPLOAD_EXTENSIONS:
+                raise BookIndexingError(
+                    f"Personal uploads support {', '.join(PERSONAL_UPLOAD_EXTENSIONS)} "
+                    f"only; got {ext}"
+                )
+            _process_personal_document(
                 task, db, temp_path, file_name, kb_id, minio_client, local_temp_path
             )
             return
