@@ -8,8 +8,8 @@ import { Toaster } from "@/components/ui/toaster";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Alash Chatbot",
-  description: "Алаш мұрасы бойынша қоғамдық чат және әкімші басқару панелі",
+  title: "Alash AI Assistant",
+  description: "Алаш ЖИ Көмекшісі және админдік басқару панелі",
 };
 
 export default function RootLayout({

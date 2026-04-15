@@ -239,6 +239,7 @@
 - Routed personal-library `pdf` and `docx` uploads through OCR/page extraction into the same LLM book-indexing pipeline used for `ocr.json` uploads, so they now store work-level analysis and open in the same structured viewer
 - Added a personal-library chunks endpoint and reused the shared document viewer so uploaded library books can be opened with the same reading UI as public books
 - Limited the personal-library frontend upload picker to `.docx` files while leaving backend PDF processing available for later use
+- Renamed the visible app branding to `Alash AI Assistant` and updated the empty-chat welcome copy accordingly
 
 ---
 

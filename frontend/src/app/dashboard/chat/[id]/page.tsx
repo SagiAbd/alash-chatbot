@@ -298,7 +298,7 @@ export default function ChatPage({ params }: { params: { id: string } }) {
                 <Bot className="h-8 w-8 text-muted-foreground" />
               </div>
               <p className="text-lg font-medium">
-                Алаш чатботына қош келдіңіз
+                Қош келдіңіз!
               </p>
               <p className="text-sm mt-1">Сұрағыңызды жазыңыз</p>
             </div>

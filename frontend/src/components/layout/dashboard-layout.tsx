@@ -148,7 +148,7 @@ export default function DashboardLayout({
               </span>
               <span className="flex flex-col">
                 <span className="text-sm font-semibold text-foreground group-hover:text-primary">
-                  Alash Chatbot
+                  Alash AI Assistant
                 </span>
                 <span className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
                   {isAdmin(user)
