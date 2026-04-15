@@ -6,6 +6,7 @@
 - Replaced the admin sidebar's old image-logo usage with a consistent Alash text mark, added a direct "Open public site" admin navigation link, and aligned public/admin entry screens with the same branding treatment
 - Renamed the frontend package from `rag-web-ui-frontend` to `alash-chatbot-frontend` and localized the public chat's setup placeholder text
 - Rewired the remaining dashboard UI actions and redirects so chat and knowledge-base flows now land on `/admin/...` routes consistently during the legacy-dashboard transition
+- Polished the public-facing copy by switching landing/chat entry labels to Kazakh, localizing public chat fallback/error text, and setting the app document language metadata to `kk`
 
 ## [2026-04-14]
 

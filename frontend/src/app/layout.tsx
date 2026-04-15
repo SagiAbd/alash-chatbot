@@ -9,7 +9,7 @@ const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Alash Chatbot",
-  description: "A public chatbot with an admin knowledge-base console",
+  description: "Алаш мұрасы бойынша қоғамдық чат және әкімші басқару панелі",
 };
 
 export default function RootLayout({
@@ -18,7 +18,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="kk">
       <body className={inter.className}>
         {children}
         <Toaster />

@@ -82,8 +82,8 @@ export default function PublicChatPage() {
     api: chatId ? `/api/public/chat/${chatId}/messages` : "/api/public/chat/unavailable",
     onError: (error: Error) => {
       toast({
-        title: "Error",
-        description: error.message || "Failed to get a response.",
+        title: "Қате",
+        description: error.message || "Жауап алу мүмкін болмады.",
         variant: "destructive",
       });
     },
@@ -106,7 +106,7 @@ export default function PublicChatPage() {
         if (error instanceof ApiError) {
           setSetupError(error.message);
         } else {
-          setSetupError("Public chat is unavailable right now.");
+          setSetupError("Қоғамдық чат қазір қолжетімсіз.");
         }
       }
     };
@@ -162,7 +162,7 @@ export default function PublicChatPage() {
             href="/admin/login"
             className="px-5 py-2.5 bg-gray-200 text-gray-800 rounded-full text-sm font-medium transition-all duration-300 hover:bg-gray-300"
           >
-            Login
+            Әкімші кіруі
           </Link>
         </div>
 
@@ -194,7 +194,7 @@ export default function PublicChatPage() {
                     <div className="max-w-[90%] rounded-2xl bg-primary text-primary-foreground px-4 py-3 shadow-sm whitespace-pre-wrap">
                       <div className="mb-2 flex items-center gap-2 text-xs text-primary-foreground/80">
                         <User className="h-3.5 w-3.5" />
-                        You
+                        Сіз
                       </div>
                       {message.content}
                     </div>

@@ -54,7 +54,7 @@ export default function Home() {
             href="/admin/login"
             className="px-5 py-2.5 bg-gray-200 text-gray-800 rounded-full text-sm font-medium transition-all duration-300 hover:bg-gray-300"
           >
-            Login
+            Әкімші кіруі
           </Link>
         </div>
 
