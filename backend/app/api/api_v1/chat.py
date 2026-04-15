@@ -1,8 +1,9 @@
 """Unified chat API — serves guests, regular users, and admins."""
 
+import secrets
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 
@@ -17,6 +18,7 @@ from app.services.chat_service import generate_response
 from app.services.personal_library import get_personal_kb
 
 router = APIRouter()
+GUEST_TOKEN_HEADER = "x-guest-token"
 
 
 def _resolve_public_kb(db: Session) -> KnowledgeBase:
@@ -58,7 +60,24 @@ def _knowledge_bases_for_user(
     return knowledge_bases
 
 
-def _load_owned_chat(db: Session, chat_id: int, user: Optional[User]) -> Chat:
+def _resolve_guest_token(request: Request) -> str | None:
+    """Return the guest-session token from the request headers, if any."""
+    return request.headers.get(GUEST_TOKEN_HEADER)
+
+
+def _guest_chat_access_allowed(chat: Chat, guest_token: str | None) -> bool:
+    """Return whether the provided guest token can access the chat."""
+    return bool(
+        chat.is_public
+        and chat.user_id is None
+        and chat.guest_token
+        and guest_token == chat.guest_token
+    )
+
+
+def _load_owned_chat(
+    db: Session, chat_id: int, user: Optional[User], guest_token: str | None
+) -> Chat:
     """Fetch a chat record the caller is allowed to read/write."""
     chat = (
         db.query(Chat)
@@ -70,12 +89,12 @@ def _load_owned_chat(db: Session, chat_id: int, user: Optional[User]) -> Chat:
         raise HTTPException(status_code=404, detail="Chat not found")
 
     if user is None:
-        if not chat.is_public or chat.user_id is not None:
+        if not _guest_chat_access_allowed(chat, guest_token):
             raise HTTPException(status_code=404, detail="Chat not found")
         return chat
 
     if chat.user_id is None:
-        if chat.is_public:
+        if _guest_chat_access_allowed(chat, guest_token):
             return chat
         raise HTTPException(status_code=404, detail="Chat not found")
 
@@ -101,15 +120,20 @@ def _to_chat_response(chat: Chat) -> dict[str, Any]:
 @router.post("", response_model=ChatResponse)
 @router.post("/", response_model=ChatResponse)
 def create_chat(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
 ) -> Any:
     """Create a new chat for the caller (guest or authenticated)."""
     knowledge_bases = _knowledge_bases_for_user(db, current_user)
+    guest_token = None
+    if current_user is None:
+        guest_token = _resolve_guest_token(request) or secrets.token_hex(32)
     chat = Chat(
         title="Жаңа сұхбат",
         user_id=current_user.id if current_user else None,
         is_public=current_user is None,
+        guest_token=guest_token,
     )
     chat.knowledge_bases = knowledge_bases
     db.add(chat)
@@ -141,23 +165,25 @@ def list_chats(
 @router.get("/{chat_id}", response_model=ChatResponse)
 def get_chat(
     *,
+    request: Request,
     db: Session = Depends(get_db),
     chat_id: int,
     current_user: Optional[User] = Depends(get_current_user_optional),
 ) -> Any:
-    chat = _load_owned_chat(db, chat_id, current_user)
+    chat = _load_owned_chat(db, chat_id, current_user, _resolve_guest_token(request))
     return _to_chat_response(chat)
 
 
 @router.post("/{chat_id}/messages")
 async def create_message(
     *,
+    request: Request,
     db: Session = Depends(get_db),
     chat_id: int,
     messages: dict,
     current_user: Optional[User] = Depends(get_current_user_optional),
 ) -> StreamingResponse:
-    chat = _load_owned_chat(db, chat_id, current_user)
+    chat = _load_owned_chat(db, chat_id, current_user, _resolve_guest_token(request))
 
     last_message = messages["messages"][-1]
     if last_message["role"] != "user":

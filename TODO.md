@@ -62,3 +62,4 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 - Give users option to see kb  
 - Remove main page  
 - TypeError: 'auth_provider' is an invalid keyword argument for User
+- restrict guest chat access by session and hide raw chat/kb ids in UI

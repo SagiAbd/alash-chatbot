@@ -11,12 +11,20 @@ const Breadcrumb = () => {
     const paths = pathname.split("/").filter(Boolean);
     const breadcrumbs = paths.map((path, index) => {
       const href = "/" + paths.slice(0, index + 1).join("/");
-      const label =
-        path.charAt(0).toUpperCase() + path.slice(1).replace(/-/g, " ");
+      const previousPath = index > 0 ? paths[index - 1] : null;
       const isLast = index === paths.length - 1;
+      let displayLabel =
+        path.charAt(0).toUpperCase() + path.slice(1).replace(/-/g, " ");
 
-      // Handle dynamic routes with [id]
-      const displayLabel = path.match(/^\[.*\]$/) ? "Details" : label;
+      if (/^\d+$/.test(path)) {
+        if (previousPath === "chat") {
+          displayLabel = "Conversation";
+        } else if (previousPath === "knowledge") {
+          displayLabel = "Knowledge Base";
+        } else {
+          displayLabel = "Details";
+        }
+      }
 
       return {
         href,
@@ -35,13 +43,13 @@ const Breadcrumb = () => {
   return (
     <nav className="flex items-center space-x-2 text-base text-muted-foreground mb-6">
       <Link
-        href="/admin"
+        href="/"
         className="flex items-center hover:text-foreground transition-colors"
       >
         <Home className="h-4 w-4" />
       </Link>
 
-      {breadcrumbs.map((breadcrumb, index) => (
+      {breadcrumbs.map((breadcrumb) => (
         <div key={breadcrumb.href} className="flex items-center">
           <ChevronRight className="h-4 w-4 mx-2 text-muted-foreground/50" />
           {breadcrumb.isLast ? (

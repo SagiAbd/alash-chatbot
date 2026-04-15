@@ -4,6 +4,7 @@
 
 ### Fixed
 - Stopped local registration and admin bootstrap from passing nonexistent `auth_provider` and `google_sub` ORM fields into `User`, and exposed a computed `auth_provider="local"` value for API responses so new-account signup works again without a user-table migration
+- Restricted guest chat access to a per-browser guest session token instead of exposing any public chat by numeric ID alone, and removed raw chat/knowledge-base IDs from breadcrumb labels
 
 ### Changed
 - Started the unified app-shell rollout by replacing the public landing/admin split with a shared sidebar workspace, moving primary navigation toward `/`, `/chat/*`, `/knowledge`, `/library`, and `/settings`, and redirecting legacy `/admin/*` and `/dashboard/*` paths into the new structure

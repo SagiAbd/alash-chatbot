@@ -1,6 +1,7 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, Table
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Table
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import relationship
+
 from app.models.base import Base, TimestampMixin
 
 # Association table for many-to-many relationship between Chat and KnowledgeBase
@@ -21,6 +22,7 @@ class Chat(Base, TimestampMixin):
     title = Column(String(255), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     is_public = Column(Boolean, nullable=False, default=False)
+    guest_token = Column(String(64), nullable=True, index=True)
 
     # Relationships
     messages = relationship(

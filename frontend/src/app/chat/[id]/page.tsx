@@ -15,6 +15,7 @@ import { Bot, Send, User } from "lucide-react";
 import DashboardLayout from "@/components/layout/dashboard-layout";
 import { Answer } from "@/components/chat/answer";
 import { ApiError, api } from "@/lib/api";
+import { buildChatHeaders } from "@/lib/chat-headers";
 import { useToast } from "@/components/ui/use-toast";
 
 const TOOL_ACTION_KZ: Record<string, string> = {
@@ -136,13 +137,7 @@ export default function ChatPage({ params }: { params: { id: string } }) {
     setMessages,
   } = useChat({
     api: `/api/chat/${params.id}/messages`,
-    headers: {
-      Authorization: `Bearer ${
-        typeof window !== "undefined"
-          ? window.localStorage.getItem("token") || ""
-          : ""
-      }`,
-    },
+    headers: buildChatHeaders(),
     onError: (error: Error) => {
       toast({
         title: "Error",

@@ -1,3 +1,5 @@
+import { getGuestSessionToken } from "@/lib/guest-session";
+
 interface FetchOptions extends Omit<RequestInit, 'body' | 'headers'> {
   data?: any;
   headers?: Record<string, string>;
@@ -18,9 +20,12 @@ export async function fetchApi(fullUrl: string, options: FetchOptions = {}) {
   if (typeof window !== 'undefined') {
     token = localStorage.getItem('token') || '';
   }
+  const guestToken =
+    typeof window !== "undefined" ? getGuestSessionToken() : "";
 
   const headers: Record<string, string> = {
     ...(token && { Authorization: `Bearer ${token}` }),
+    ...(guestToken && { "X-Guest-Token": guestToken }),
     ...customHeaders,
   };
 
