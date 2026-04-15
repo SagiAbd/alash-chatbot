@@ -44,7 +44,7 @@ export default function NewChatPage() {
   return (
     <DashboardLayout>
       <div className="flex min-h-[70vh] items-center justify-center text-sm text-muted-foreground">
-        Жаңа чат ашылып жатыр...
+        Чат ашылып жатыр...
       </div>
     </DashboardLayout>
   );
