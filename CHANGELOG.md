@@ -9,6 +9,7 @@
 - Polished the public-facing copy by switching landing/chat entry labels to Kazakh, localizing public chat fallback/error text, and setting the app document language metadata to `kk`
 - Simplified the public landing page by removing the top-left branding block, deleting the three feature cards and availability badge, and renaming the login CTA to `Жүйеге кіру`
 - Removed the final public landing page CTA panel so the homepage now ends after the main hero content
+- Simplified the public chat header by removing the old branding block, restoring a top navigation row with a renamed `Басты бет` link, and keeping the `Жүйеге кіру` action above the chat
 
 ### Fixed
 - Matched public chat streaming behavior to the admin chat by hiding empty assistant bubbles during think-only phases and showing the `Ойланудамын` status card only until visible answer text starts streaming

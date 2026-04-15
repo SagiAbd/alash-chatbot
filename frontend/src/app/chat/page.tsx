@@ -153,25 +153,18 @@ export default function PublicChatPage() {
   return (
     <main className="min-h-screen bg-gray-50 text-black">
       <div className="max-w-6xl mx-auto px-4 py-8">
-        <div className="flex items-center justify-between mb-8">
-          <Link href="/" className="inline-flex items-center gap-3">
-            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-600 text-sm font-semibold text-white shadow-sm">
-              A
-            </span>
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-blue-600">
-                Alash Chatbot
-              </p>
-              <p className="mt-1 text-sm text-gray-500">
-                Қоғамдық чат
-              </p>
-            </div>
+        <div className="mb-8 flex items-center justify-between">
+          <Link
+            href="/"
+            className="rounded-full bg-white px-5 py-2.5 text-sm font-medium text-gray-700 shadow-sm transition-all duration-300 hover:bg-gray-100 hover:text-gray-900"
+          >
+            Басты бет
           </Link>
           <Link
             href="/admin/login"
-            className="px-5 py-2.5 bg-gray-200 text-gray-800 rounded-full text-sm font-medium transition-all duration-300 hover:bg-gray-300"
+            className="rounded-full bg-gray-200 px-5 py-2.5 text-sm font-medium text-gray-800 transition-all duration-300 hover:bg-gray-300"
           >
-            Әкімші кіруі
+            Жүйеге кіру
           </Link>
         </div>
 
