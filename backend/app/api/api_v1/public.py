@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 
 from app.db.session import get_db
-from app.models.knowledge import Document, KnowledgeBase
+from app.models.knowledge import Document, DocumentChunk, KnowledgeBase
 from app.schemas.app_settings import PublicConfigResponse
 from app.schemas.knowledge import DocumentResponse, KnowledgeBaseResponse
 from app.services.app_settings import (
@@ -110,3 +110,66 @@ def get_public_document(
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
     return document
+
+
+@router.get("/knowledge-base/documents/{document_id}/chunks")
+def get_public_document_chunks(
+    *,
+    db: Session = Depends(get_db),
+    document_id: int,
+) -> Any:
+    """Return read-only chunks for a document in the main public knowledge base."""
+    kb = _get_public_kb(db)
+    document = (
+        db.query(Document)
+        .filter(
+            Document.knowledge_base_id == kb.id,
+            Document.id == document_id,
+        )
+        .first()
+    )
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    is_glossary = (
+        isinstance(document.analysis, dict)
+        and document.analysis.get("type") == "glossary"
+    )
+
+    if is_glossary:
+        chunks = (
+            db.query(DocumentChunk)
+            .filter(
+                DocumentChunk.document_id == document_id,
+                DocumentChunk.chunk_type == "term",
+            )
+            .all()
+        )
+    else:
+        chunks = (
+            db.query(DocumentChunk)
+            .filter(
+                DocumentChunk.document_id == document_id,
+                DocumentChunk.chunk_type == "work",
+            )
+            .all()
+        )
+        if not chunks:
+            chunks = (
+                db.query(DocumentChunk)
+                .filter(
+                    DocumentChunk.document_id == document_id,
+                    DocumentChunk.chunk_type.is_(None),
+                )
+                .all()
+            )
+
+    chunks.sort(
+        key=lambda chunk: (
+            chunk.start_page
+            or (chunk.chunk_metadata or {}).get("start_page")
+            or 0,
+            chunk.id,
+        )
+    )
+    return [{"id": c.id, "chunk_metadata": c.chunk_metadata} for c in chunks]

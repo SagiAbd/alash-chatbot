@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import AdminKnowledgeBasePage from "@/app/dashboard/knowledge/[id]/page";
 import DashboardLayout from "@/components/layout/dashboard-layout";
+import { PublicDocumentViewer } from "@/components/knowledge-base/public-document-viewer";
 import { AuthenticatedUser } from "@/lib/auth";
 import { ApiError, api } from "@/lib/api";
 import { fetchCurrentUser, isAdmin } from "@/lib/session";
@@ -17,8 +18,31 @@ interface PublicKnowledgeBase {
     file_name: string;
     content_type: string;
     created_at: string;
+    analysis?: DocumentAnalysis;
   }>;
 }
+
+interface BookAnalysis {
+  type?: undefined;
+  summary: string;
+  metadata: {
+    book_title: string;
+    main_author: string;
+    publisher: string;
+    year: string;
+  };
+  toc?: { title: string; start_page: number; end_page: number } | null;
+  works: Array<{ title: string; start_page: number; end_page: number }>;
+}
+
+interface GlossaryAnalysis {
+  type: "glossary";
+  term_count: number;
+  authors: string[];
+  fields: string[];
+}
+
+type DocumentAnalysis = BookAnalysis | GlossaryAnalysis | null;
 
 export default function KnowledgeBaseDetailPage({
   params,
@@ -97,13 +121,16 @@ export default function KnowledgeBaseDetailPage({
               {knowledgeBase.documents.map((document) => (
                 <div
                   key={document.id}
-                  className="rounded-xl border px-4 py-3"
+                  className="flex items-center justify-between gap-4 rounded-xl border px-4 py-3"
                 >
-                  <div className="font-medium">{document.file_name}</div>
-                  <div className="mt-1 text-sm text-muted-foreground">
-                    {document.content_type} ·{" "}
-                    {new Date(document.created_at).toLocaleString()}
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{document.file_name}</div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      {document.content_type} ·{" "}
+                      {new Date(document.created_at).toLocaleString()}
+                    </div>
                   </div>
+                  <PublicDocumentViewer document={document} />
                 </div>
               ))}
             </div>

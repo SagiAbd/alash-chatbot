@@ -307,6 +307,15 @@ export default function KnowledgePage() {
                     No documents yet.
                   </div>
                 )}
+
+                <div className="pt-2">
+                  <Link
+                    href={`/knowledge/${kb.id}`}
+                    className="inline-flex items-center justify-center rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
+                  >
+                    Open knowledge base
+                  </Link>
+                </div>
               </div>
             ))}
           </div>

@@ -90,6 +90,7 @@ interface Chunk {
     modern_term?: string;
     field?: string;
     author?: string;
+    alash_definition?: string;
     modern_definition?: string;
     context?: string;
     [key: string]: unknown;

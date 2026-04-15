@@ -78,10 +78,19 @@ export const Answer = ({
         if (infoMap[key]) continue;
 
         try {
-          const [kb, doc] = await Promise.all([
-            api.get(`/api/knowledge-base/${kb_id}`),
-            api.get(`/api/knowledge-base/${kb_id}/documents/${document_id}`),
-          ]);
+          let kb;
+          let doc;
+          try {
+            [kb, doc] = await Promise.all([
+              api.get(`/api/knowledge-base/${kb_id}`),
+              api.get(`/api/knowledge-base/${kb_id}/documents/${document_id}`),
+            ]);
+          } catch {
+            [kb, doc] = await Promise.all([
+              api.get("/api/public/knowledge-base"),
+              api.get(`/api/public/knowledge-base/documents/${document_id}`),
+            ]);
+          }
 
           infoMap[key] = {
             knowledge_base: {

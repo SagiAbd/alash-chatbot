@@ -29,6 +29,7 @@
 - Matched public chat streaming behavior to the admin chat by hiding empty assistant bubbles during think-only phases and showing the `Ойланудамын` status card only until visible answer text starts streaming
 - Reworked auth redirects so public-session failures no longer dump users onto the admin login page, while admin pages still route invalid sessions back through the admin login flow
 - Ensured every newly registered user gets a personal knowledge base immediately and hid personal libraries from the admin knowledge-base list
+- Let guests and regular users open and read documents inside the configured default knowledge base, including chunked document/glossary content and public citation metadata fallback
 
 ### Added
 - Added local database-backed registration and sign-in for all users, plus `/api/auth/me` for post-login routing between public users and admins
