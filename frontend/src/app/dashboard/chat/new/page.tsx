@@ -61,7 +61,7 @@ export default function NewChatPage() {
         knowledge_base_ids: [selectedKB],
       });
 
-      router.push(`/dashboard/chat/${data.id}`);
+      router.push(`/admin/chat/${data.id}`);
     } catch (error) {
       console.error("Failed to create chat:", error);
       if (error instanceof ApiError) {
@@ -95,7 +95,7 @@ export default function NewChatPage() {
             chat.
           </p>
           <Link
-            href="/dashboard/knowledge"
+            href="/admin/knowledge"
             className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2"
           >
             <Plus className="mr-2 h-4 w-4" />

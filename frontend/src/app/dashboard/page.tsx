@@ -75,7 +75,7 @@ export default function DashboardPage() {
               </p>
             </div>
             <a
-              href="/dashboard/knowledge/new"
+              href="/admin/knowledge/new"
               className="inline-flex items-center justify-center rounded-full bg-blue-600 px-6 py-3 text-sm font-medium text-white hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20"
             >
               <Plus className="mr-2 h-4 w-4" />
@@ -101,7 +101,7 @@ export default function DashboardPage() {
               </div>
             </div>
             <a
-              href="/dashboard/knowledge"
+              href="/admin/knowledge"
               className="mt-6 flex items-center text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm font-medium"
             >
               View all knowledge bases
@@ -124,7 +124,7 @@ export default function DashboardPage() {
               </div>
             </div>
             <a
-              href="/dashboard/chat"
+              href="/admin/chat"
               className="mt-6 flex items-center text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 text-sm font-medium"
             >
               View all chat sessions
@@ -139,7 +139,7 @@ export default function DashboardPage() {
         </h2>
         <div className="grid gap-6 md:grid-cols-3 mb-12">
           <a
-            href="/dashboard/knowledge/new"
+            href="/admin/knowledge/new"
             className="flex flex-col items-center justify-center rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-8 shadow-sm hover:shadow-md transition-all hover:border-blue-500 dark:hover:border-blue-500"
           >
             <div className="rounded-full bg-blue-100 dark:bg-blue-900/30 p-4 mb-4">
@@ -154,7 +154,7 @@ export default function DashboardPage() {
           </a>
 
           <a
-            href="/dashboard/knowledge"
+            href="/admin/knowledge"
             className="flex flex-col items-center justify-center rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-8 shadow-sm hover:shadow-md transition-all hover:border-indigo-500 dark:hover:border-indigo-500"
           >
             <div className="rounded-full bg-indigo-100 dark:bg-indigo-900/30 p-4 mb-4">
@@ -169,7 +169,7 @@ export default function DashboardPage() {
           </a>
 
           <a
-            href="/dashboard/chat/new"
+            href="/admin/chat/new"
             className="flex flex-col items-center justify-center rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-8 shadow-sm hover:shadow-md transition-all hover:border-purple-500 dark:hover:border-purple-500"
           >
             <div className="rounded-full bg-purple-100 dark:bg-purple-900/30 p-4 mb-4">
@@ -205,7 +205,7 @@ export default function DashboardPage() {
                   identify its purpose.
                 </p>
                 <a
-                  href="/dashboard/knowledge/new"
+                  href="/admin/knowledge/new"
                   className="mt-4 inline-flex items-center text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm font-medium"
                 >
                   Create now
@@ -227,7 +227,7 @@ export default function DashboardPage() {
                   system will process and index them for AI-powered retrieval.
                 </p>
                 <a
-                  href="/dashboard/knowledge"
+                  href="/admin/knowledge"
                   className="mt-4 inline-flex items-center text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 text-sm font-medium"
                 >
                   Upload documents
@@ -250,7 +250,7 @@ export default function DashboardPage() {
                   documents.
                 </p>
                 <a
-                  href="/dashboard/chat/new"
+                  href="/admin/chat/new"
                   className="mt-4 inline-flex items-center text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 text-sm font-medium"
                 >
                   Start chatting

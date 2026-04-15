@@ -86,7 +86,7 @@ export default function ChatPage() {
               </p>
             </div>
             <Link
-              href="/dashboard/chat/new"
+              href="/admin/chat/new"
               className="inline-flex items-center justify-center rounded-full bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors duration-200 shadow-sm hover:shadow-md"
             >
               <Plus className="mr-2 h-4 w-4" />
@@ -114,7 +114,7 @@ export default function ChatPage() {
               key={chat.id}
               className="group relative bg-card rounded-xl border shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden"
             >
-              <Link href={`/dashboard/chat/${chat.id}`}>
+              <Link href={`/admin/chat/${chat.id}`}>
                 <div className="p-5">
                   <div className="flex items-start gap-4">
                     <div className="bg-primary/10 rounded-lg p-2">
@@ -166,7 +166,7 @@ export default function ChatPage() {
               Start a new chat to begin exploring your knowledge base
             </p>
             <Link
-              href="/dashboard/chat/new"
+              href="/admin/chat/new"
               className="mt-6 inline-flex items-center justify-center rounded-full bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors duration-200"
             >
               <Plus className="mr-2 h-4 w-4" />

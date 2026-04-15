@@ -35,7 +35,7 @@ export default function NewKnowledgeBasePage() {
         description,
       });
 
-      router.push(`/dashboard/knowledge/${data.id}`);
+      router.push(`/admin/knowledge/${data.id}`);
     } catch (error) {
       console.error("Failed to create knowledge base:", error);
       if (error instanceof ApiError) {
