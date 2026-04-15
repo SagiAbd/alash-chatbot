@@ -340,7 +340,7 @@ export default function KnowledgePage() {
                   </div>
                 ) : (
                   <div className="rounded-xl border border-dashed px-4 py-6 text-sm text-muted-foreground">
-                    Құжаттар әлі жоқ.
+                    Кітаптар әлі жоқ.
                   </div>
                 )}
 

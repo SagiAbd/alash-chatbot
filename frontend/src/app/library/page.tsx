@@ -3,12 +3,42 @@
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { FileIcon, defaultStyles } from "react-file-icon";
-import { Library, Loader2, LogIn, Trash2, Upload, UserPlus } from "lucide-react";
+import {
+  Library,
+  Loader2,
+  LogIn,
+  Trash2,
+  Upload,
+  UserPlus,
+} from "lucide-react";
 import DashboardLayout from "@/components/layout/dashboard-layout";
+import { PublicDocumentViewer } from "@/components/knowledge-base/public-document-viewer";
 import { AuthenticatedUser } from "@/lib/auth";
 import { ApiError, api } from "@/lib/api";
 import { fetchCurrentUser } from "@/lib/session";
 import { useToast } from "@/components/ui/use-toast";
+
+interface BookAnalysis {
+  type?: undefined;
+  summary: string;
+  metadata: {
+    book_title: string;
+    main_author: string;
+    publisher: string;
+    year: string;
+  };
+  toc?: { title: string; start_page: number; end_page: number } | null;
+  works: Array<{ title: string; start_page: number; end_page: number }>;
+}
+
+interface GlossaryAnalysis {
+  type: "glossary";
+  term_count: number;
+  authors: string[];
+  fields: string[];
+  title?: string | null;
+  source_author?: string | null;
+}
 
 interface LibraryDocument {
   id: number;
@@ -16,6 +46,7 @@ interface LibraryDocument {
   file_size: number;
   created_at: string;
   content_type: string;
+  analysis?: BookAnalysis | GlossaryAnalysis | null;
 }
 
 interface LibraryTask {
@@ -163,8 +194,8 @@ export default function LibraryPage() {
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Менің кітапханам</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              Жеке `.docx` және `.pdf` файлдарыңызды жүктеңіз. Чат кезінде
-              олар ашық білім қорымен бірге ізделеді.
+              Жеке `.docx` файлдарыңызды жүктеңіз. Чат кезінде олар ашық
+              білім қорымен бірге ізделеді.
             </p>
           </div>
           {user ? (
@@ -173,7 +204,7 @@ export default function LibraryPage() {
               {uploading ? "Жүктеліп жатыр..." : "Файл жүктеу"}
               <input
                 type="file"
-                accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 className="hidden"
                 disabled={uploading}
                 onChange={handleUpload}
@@ -256,7 +287,7 @@ export default function LibraryPage() {
 
         {user && (
           <div className="rounded-2xl border bg-card p-6 shadow-sm">
-            <h2 className="text-lg font-semibold">Құжаттар</h2>
+            <h2 className="text-lg font-semibold">Кітаптар</h2>
 
             {loading ? (
               <div className="py-10 text-sm text-muted-foreground">
@@ -285,13 +316,19 @@ export default function LibraryPage() {
                         </div>
                       </div>
                     </div>
-                    <button
-                      onClick={() => handleDelete(document.id)}
-                      className="rounded-lg p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      aria-label={`${document.file_name} файлын жою`}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <PublicDocumentViewer
+                        document={document}
+                        chunksPath={`/api/me/library/documents/${document.id}/chunks`}
+                      />
+                      <button
+                        onClick={() => handleDelete(document.id)}
+                        className="rounded-lg p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        aria-label={`${document.file_name} файлын жою`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

@@ -49,6 +49,70 @@ def list_personal_documents(
     )
 
 
+@router.get("/library/documents/{doc_id}/chunks")
+def get_personal_document_chunks(
+    *,
+    db: Session = Depends(get_db),
+    doc_id: int,
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """Return viewer chunks for a document in the caller's personal library."""
+    kb = ensure_personal_kb(db, current_user)
+    document = (
+        db.query(Document)
+        .filter(
+            Document.id == doc_id,
+            Document.knowledge_base_id == kb.id,
+        )
+        .first()
+    )
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    is_glossary = (
+        isinstance(document.analysis, dict)
+        and document.analysis.get("type") == "glossary"
+    )
+
+    if is_glossary:
+        chunks = (
+            db.query(DocumentChunk)
+            .filter(
+                DocumentChunk.document_id == doc_id,
+                DocumentChunk.chunk_type == "term",
+            )
+            .all()
+        )
+    else:
+        chunks = (
+            db.query(DocumentChunk)
+            .filter(
+                DocumentChunk.document_id == doc_id,
+                DocumentChunk.chunk_type == "work",
+            )
+            .all()
+        )
+        if not chunks:
+            chunks = (
+                db.query(DocumentChunk)
+                .filter(
+                    DocumentChunk.document_id == doc_id,
+                    DocumentChunk.chunk_type.is_(None),
+                )
+                .all()
+            )
+
+    chunks.sort(
+        key=lambda chunk: (
+            chunk.start_page
+            or (chunk.chunk_metadata or {}).get("start_page")
+            or 0,
+            chunk.id,
+        )
+    )
+    return [{"id": c.id, "chunk_metadata": c.chunk_metadata} for c in chunks]
+
+
 @router.get("/library/tasks")
 def list_personal_tasks(
     db: Session = Depends(get_db),

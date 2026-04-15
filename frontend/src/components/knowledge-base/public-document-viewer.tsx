@@ -111,7 +111,7 @@ function Section({
 
 function WorkChunk({ chunk, idx }: { chunk: Chunk; idx: number }) {
   const [open, setOpen] = useState(false);
-  const title = chunk.chunk_metadata.work_title?.trim() || `Work ${idx + 1}`;
+  const title = chunk.chunk_metadata.work_title?.trim() || `Шығарма ${idx + 1}`;
 
   return (
     <div className="py-3">
@@ -129,7 +129,7 @@ function WorkChunk({ chunk, idx }: { chunk: Chunk; idx: number }) {
         </span>
         {chunk.chunk_metadata.start_page != null && (
           <span className="whitespace-nowrap text-xs text-muted-foreground">
-            pp. {chunk.chunk_metadata.start_page}–
+            {chunk.chunk_metadata.start_page}–
             {chunk.chunk_metadata.end_page}
           </span>
         )}
@@ -146,7 +146,7 @@ function WorkChunk({ chunk, idx }: { chunk: Chunk; idx: number }) {
 function TermChunk({ chunk, idx }: { chunk: Chunk; idx: number }) {
   const [open, setOpen] = useState(false);
   const metadata = chunk.chunk_metadata;
-  const label = metadata.alash_term || `Term ${idx + 1}`;
+  const label = metadata.alash_term || `Термин ${idx + 1}`;
 
   return (
     <div className="py-2">
@@ -201,8 +201,10 @@ function TermChunk({ chunk, idx }: { chunk: Chunk; idx: number }) {
 
 export function PublicDocumentViewer({
   document,
+  chunksPath,
 }: {
   document: PublicDocument;
+  chunksPath?: string;
 }) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
@@ -218,7 +220,7 @@ export function PublicDocumentViewer({
     setLoading(true);
     try {
       const data = (await api.get(
-        `/api/public/knowledge-base/documents/${document.id}/chunks`,
+        chunksPath ?? `/api/public/knowledge-base/documents/${document.id}/chunks`,
       )) as Chunk[];
       setChunks(data);
     } catch (error) {
@@ -307,13 +309,13 @@ export function PublicDocumentViewer({
 
               <div className="flex-1 space-y-6 overflow-y-auto pr-1 text-sm">
                 {bookAnalysis?.summary && (
-                  <Section title="Summary">
+                  <Section title="Сипаттама">
                     <p className="leading-relaxed">{bookAnalysis.summary}</p>
                   </Section>
                 )}
 
                 {tocItems.length > 0 && (
-                  <Section title="Contents" defaultOpen={false}>
+                  <Section title="Мазмұны" defaultOpen={false}>
                     <div className="space-y-2">
                       {tocItems.map((item, index) => (
                         <div
@@ -324,7 +326,7 @@ export function PublicDocumentViewer({
                             {item.title}
                           </span>
                           <span className="whitespace-nowrap text-xs text-muted-foreground">
-                            pp. {item.start_page}–{item.end_page}
+                            {item.start_page}–{item.end_page}
                           </span>
                         </div>
                       ))}
@@ -335,10 +337,10 @@ export function PublicDocumentViewer({
                 {loading ? (
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Loading document...
+                    Кітап жүктеліп жатыр...
                   </div>
                 ) : chunks.length > 0 ? (
-                  <Section title={`Sections (${chunks.length})`} defaultOpen={false}>
+                  <Section title={`Бөлімдер (${chunks.length})`} defaultOpen={false}>
                     <div className="divide-y">
                       {[...chunks]
                         .sort(
@@ -352,7 +354,7 @@ export function PublicDocumentViewer({
                     </div>
                   </Section>
                 ) : (
-                  <p className="text-muted-foreground">No document content found.</p>
+                  <p className="text-muted-foreground">Кітап мазмұны табылмады.</p>
                 )}
               </div>
             </>

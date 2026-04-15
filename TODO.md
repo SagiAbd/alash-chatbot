@@ -63,3 +63,4 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 - Remove main page  
 - TypeError: 'auth_provider' is an invalid keyword argument for User
 - restrict guest chat access by session and hide raw chat/kb ids in UI
+- process personal library pdf/docx uploads through OCR + book indexing and open them in the shared book viewer

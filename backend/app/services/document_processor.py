@@ -14,6 +14,7 @@ from io import BytesIO
 from typing import List, Optional
 
 from fastapi import UploadFile
+from langchain_core.documents import Document as LangchainDocument
 from minio.commonconfig import CopySource
 from minio.error import MinioException
 from pydantic import BaseModel
@@ -160,6 +161,253 @@ def _cleanup_failed_processing(
             minio_client.remove_object(settings.MINIO_BUCKET_NAME, object_name)
         except Exception:
             logger.warning("Failed to clean up MinIO object %s", object_name)
+
+
+def _load_pages_from_records(records: List[dict]) -> List[LangchainDocument]:
+    """Convert OCR-style page dicts into cleaned LangChain page documents."""
+    def _page_number(record: dict, fallback: int) -> int:
+        try:
+            return int(record.get("page", fallback))
+        except (TypeError, ValueError):
+            return fallback
+
+    pages = sorted(
+        records,
+        key=lambda item: _page_number(item, 0),
+    )
+    documents: List[LangchainDocument] = []
+    for index, item in enumerate(pages):
+        text = clean_page_text(str(item.get("text", "")))
+        if not text:
+            continue
+        page_number = _page_number(item, index + 1)
+        documents.append(
+            LangchainDocument(
+                page_content=text,
+                metadata={"page": page_number},
+            )
+        )
+    return documents
+
+
+def _collect_known_authors(db: Session, kb_id: int, task_id: int) -> List[str]:
+    """Return existing author spellings from this knowledge base."""
+    known_authors: List[str] = []
+    try:
+        rows = (
+            db.query(Document.analysis)
+            .filter(Document.knowledge_base_id == kb_id, Document.analysis.isnot(None))
+            .all()
+        )
+        seen: set[str] = set()
+        for (analysis,) in rows:
+            if isinstance(analysis, dict):
+                author = (analysis.get("metadata") or {}).get("main_author", "")
+                if author and author not in seen:
+                    known_authors.append(author)
+                    seen.add(author)
+    except Exception as exc:
+        logger.warning("Task %d: Could not fetch known authors: %s", task_id, exc)
+    return known_authors
+
+
+def _analyze_book_pages(
+    db: Session,
+    kb_id: int,
+    task_id: int,
+    file_name: str,
+    pages: List[LangchainDocument],
+    display_suffix: str,
+) -> tuple[dict, List[LangchainDocument], List[LangchainDocument], str]:
+    """Run the shared LLM indexing flow over cleaned OCR-style pages."""
+    logger.info("Task %d: Loaded %d pages", task_id, len(pages))
+
+    analysis_input = build_analysis_input(pages)
+    known_authors = _collect_known_authors(db, kb_id, task_id)
+
+    logger.info("Task %d: Running LLM book analysis", task_id)
+    t0 = time.monotonic()
+    book_index = index_book(analysis_input, known_authors=known_authors or None)
+    logger.info(
+        "Task %d: Analysis complete in %.1fs — %d works found, author: %s",
+        task_id,
+        time.monotonic() - t0,
+        len(book_index.works),
+        book_index.metadata.main_author,
+    )
+
+    if book_index.toc_find_failed or book_index.toc is None:
+        reason = book_index.toc_failure_reason.strip() or (
+            "LLM could not verify that the extracted candidate TOC pages "
+            "actually contain a table of contents."
+        )
+        raise BookIndexingError(f"TOC find failed: {reason}")
+
+    if not book_index.works:
+        raise BookIndexingError(
+            "LLM found no works in the table of contents. "
+            "Ensure the document contains a readable мазмұны/содержание page."
+        )
+
+    work_docs = extract_works(pages, book_index, file_name)
+    if not work_docs:
+        raise BookIndexingError(
+            "All works produced empty text after extraction. "
+            "Check that page numbers in the table of contents are correct."
+        )
+    page_docs = extract_pages(pages, book_index, file_name)
+    logger.info("Task %d: Extracted %d work segments", task_id, len(work_docs))
+
+    main_author = book_index.metadata.main_author.strip()
+    book_title = book_index.metadata.book_title.strip()
+    if main_author and book_title:
+        final_file_name = f"{main_author} - {book_title}{display_suffix}"
+    else:
+        final_file_name = file_name
+
+    return book_index.model_dump(), work_docs, page_docs, final_file_name
+
+
+def _persist_book_document(
+    task: "ProcessingTask",
+    db: Session,
+    temp_path: str,
+    file_name: str,
+    kb_id: int,
+    minio_client: object,
+    analysis: dict,
+    work_docs: List[LangchainDocument],
+    page_docs: List[LangchainDocument],
+    final_file_name: str,
+) -> tuple[int, str]:
+    """Store a processed book document and all of its chunks."""
+    task_id = task.id
+    existing_document = _find_document_conflict(
+        db,
+        kb_id,
+        task.document_upload.file_hash,
+        final_file_name,
+    )
+    if existing_document:
+        minio_client.remove_object(settings.MINIO_BUCKET_NAME, temp_path)
+        _mark_task_completed_with_existing_document(db, task_id, existing_document.id)
+        logger.info(
+            "Task %d: Reused existing processed document %d",
+            task_id,
+            existing_document.id,
+        )
+        return existing_document.id, existing_document.file_path
+
+    temp_object_name = temp_path.split("/")[-1]
+    permanent_path = f"kb_{kb_id}/{temp_object_name}"
+
+    t0 = time.monotonic()
+    try:
+        minio_client.copy_object(
+            bucket_name=settings.MINIO_BUCKET_NAME,
+            object_name=permanent_path,
+            source=CopySource(settings.MINIO_BUCKET_NAME, temp_path),
+        )
+        minio_client.remove_object(
+            bucket_name=settings.MINIO_BUCKET_NAME,
+            object_name=temp_path,
+        )
+    except MinioException as exc:
+        raise BookIndexingError(
+            f"Failed to move file to permanent storage: {exc}"
+        ) from exc
+    logger.info("Task %d: MinIO move in %.1fs", task_id, time.monotonic() - t0)
+
+    document = Document(
+        file_name=final_file_name,
+        file_path=permanent_path,
+        file_hash=task.document_upload.file_hash,
+        file_size=task.document_upload.file_size,
+        content_type=task.document_upload.content_type,
+        knowledge_base_id=kb_id,
+        analysis=analysis,
+    )
+    db.add(document)
+    db.commit()
+    db.refresh(document)
+    task.document_id = document.id
+    db.commit()
+    logger.info("Task %d: Document record created (id=%d)", task_id, document.id)
+
+    t0 = time.monotonic()
+    for i, doc in enumerate(work_docs):
+        chunk_id = hashlib.sha256(
+            (
+                f"work:{kb_id}:{final_file_name}:"
+                f"{doc.metadata.get('work_title', i)}:{doc.page_content[:200]}"
+            ).encode()
+        ).hexdigest()
+
+        doc.metadata["kb_id"] = kb_id
+        doc.metadata["document_id"] = document.id
+        doc.metadata["chunk_id"] = chunk_id
+        doc.metadata["chunk_type"] = "work"
+
+        db.add(
+            DocumentChunk(
+                id=chunk_id,
+                document_id=document.id,
+                kb_id=kb_id,
+                file_name=file_name,
+                chunk_type="work",
+                chunk_label=doc.metadata.get("work_title"),
+                start_page=doc.metadata.get("start_page"),
+                end_page=doc.metadata.get("end_page"),
+                chunk_metadata={"page_content": doc.page_content, **doc.metadata},
+                hash=hashlib.sha256(
+                    (doc.page_content + str(doc.metadata)).encode()
+                ).hexdigest(),
+            )
+        )
+
+        if i > 0 and i % 50 == 0:
+            db.commit()
+
+    for i, doc in enumerate(page_docs):
+        page_number = int(doc.metadata.get("page_number", 0))
+        chunk_id = hashlib.sha256(
+            f"page:{kb_id}:{final_file_name}:{page_number}:{doc.page_content[:200]}".encode()
+        ).hexdigest()
+
+        doc.metadata["kb_id"] = kb_id
+        doc.metadata["document_id"] = document.id
+        doc.metadata["chunk_id"] = chunk_id
+        doc.metadata["chunk_type"] = "page"
+
+        db.add(
+            DocumentChunk(
+                id=chunk_id,
+                document_id=document.id,
+                kb_id=kb_id,
+                file_name=file_name,
+                chunk_type="page",
+                chunk_label=f"Page {page_number}",
+                page_number=page_number,
+                start_page=page_number,
+                end_page=page_number,
+                chunk_metadata={"page_content": doc.page_content, **doc.metadata},
+                hash=hashlib.sha256(
+                    (doc.page_content + str(doc.metadata)).encode()
+                ).hexdigest(),
+            )
+        )
+
+        if i > 0 and i % 100 == 0:
+            db.commit()
+
+    db.commit()
+    logger.info(
+        "Task %d: Stored %d chunk records in %.1fs",
+        task_id,
+        len(work_docs) + len(page_docs),
+        time.monotonic() - t0,
+    )
+    return document.id, permanent_path
 
 
 # ─── Upload ───────────────────────────────────────────────────────────────────
@@ -397,12 +645,7 @@ def _process_personal_document(
     minio_client: object,
     local_temp_path: str,
 ) -> None:
-    """Process a user-uploaded ``.docx`` or ``.pdf`` into page-level chunks.
-
-    Personal uploads skip the LLM book-indexer path (which requires a table of
-    contents) and land as raw page chunks. ``.pdf`` files are OCR'd via the
-    configured vision LLM, one request per page, concurrently.
-    """
+    """Process a personal upload through OCR/page extraction and book indexing."""
     task_id = task.id
     permanent_path: str | None = None
     document_id: int | None = None
@@ -432,14 +675,7 @@ def _process_personal_document(
                 f"Allowed: {', '.join(PERSONAL_UPLOAD_EXTENSIONS)}"
             )
 
-        cleaned_pages = [
-            {
-                "page": int(p.get("page", idx + 1)),
-                "text": clean_page_text(p.get("text", "")),
-            }
-            for idx, p in enumerate(pages)
-        ]
-        cleaned_pages = [p for p in cleaned_pages if p["text"]]
+        cleaned_pages = _load_pages_from_records(pages)
         if not cleaned_pages:
             raise BookIndexingError(
                 "No readable text was extracted from the uploaded file."
@@ -451,110 +687,29 @@ def _process_personal_document(
             time.monotonic() - t0,
         )
 
-        existing_document = _find_document_conflict(
-            db,
-            kb_id,
-            task.document_upload.file_hash,
-            file_name,
-        )
-        if existing_document:
-            minio_client.remove_object(settings.MINIO_BUCKET_NAME, temp_path)
-            _mark_task_completed_with_existing_document(
-                db, task_id, existing_document.id
-            )
-            logger.info(
-                "Task %d: Reused existing personal document %d",
-                task_id,
-                existing_document.id,
-            )
-            return
-
-        temp_object_name = temp_path.split("/")[-1]
-        permanent_path = f"kb_{kb_id}/{temp_object_name}"
-        try:
-            minio_client.copy_object(
-                bucket_name=settings.MINIO_BUCKET_NAME,
-                object_name=permanent_path,
-                source=CopySource(settings.MINIO_BUCKET_NAME, temp_path),
-            )
-            minio_client.remove_object(settings.MINIO_BUCKET_NAME, temp_path)
-        except MinioException as exc:
-            raise BookIndexingError(
-                f"Failed to move personal upload to permanent storage: {exc}"
-            ) from exc
-
-        analysis = {
-            "type": "personal_document",
-            "source_format": ext.lstrip("."),
-            "page_count": len(cleaned_pages),
-        }
-        document = Document(
+        analysis, work_docs, page_docs, final_file_name = _analyze_book_pages(
+            db=db,
+            kb_id=kb_id,
+            task_id=task_id,
             file_name=file_name,
-            file_path=permanent_path,
-            file_hash=task.document_upload.file_hash,
-            file_size=task.document_upload.file_size,
-            content_type=task.document_upload.content_type,
-            knowledge_base_id=kb_id,
+            pages=cleaned_pages,
+            display_suffix=ext,
+        )
+        document_id, permanent_path = _persist_book_document(
+            task=task,
+            db=db,
+            temp_path=temp_path,
+            file_name=file_name,
+            kb_id=kb_id,
+            minio_client=minio_client,
             analysis=analysis,
-        )
-        db.add(document)
-        db.commit()
-        db.refresh(document)
-        document_id = document.id
-        task.document_id = document.id
-        db.commit()
-        logger.info(
-            "Task %d: Personal document created (id=%d)",
-            task_id,
-            document.id,
-        )
-
-        t0 = time.monotonic()
-        for i, page in enumerate(cleaned_pages):
-            page_number = int(page["page"])
-            page_content = page["text"]
-            chunk_id = hashlib.sha256(
-                f"page:{kb_id}:{file_name}:{page_number}:{page_content[:200]}".encode()
-            ).hexdigest()
-            metadata = {
-                "kb_id": kb_id,
-                "document_id": document.id,
-                "chunk_id": chunk_id,
-                "chunk_type": "page",
-                "page_number": page_number,
-                "page_content": page_content,
-                "file_name": file_name,
-            }
-            db.add(
-                DocumentChunk(
-                    id=chunk_id,
-                    document_id=document.id,
-                    kb_id=kb_id,
-                    file_name=file_name,
-                    chunk_type="page",
-                    chunk_label=f"Page {page_number}",
-                    page_number=page_number,
-                    start_page=page_number,
-                    end_page=page_number,
-                    chunk_metadata=metadata,
-                    hash=hashlib.sha256(
-                        (page_content + str(metadata)).encode()
-                    ).hexdigest(),
-                )
-            )
-            if i > 0 and i % 100 == 0:
-                db.commit()
-
-        db.commit()
-        logger.info(
-            "Task %d: Stored %d personal page chunks in %.1fs",
-            task_id,
-            len(cleaned_pages),
-            time.monotonic() - t0,
+            work_docs=work_docs,
+            page_docs=page_docs,
+            final_file_name=final_file_name,
         )
 
         task.status = "completed"
-        task.document_id = document.id
+        task.document_id = document_id
         upload = task.document_upload
         if upload:
             upload.status = "completed"
@@ -652,206 +807,30 @@ def process_document_background(
         # 2. Load and clean pages from JSON
         logger.info(f"Task {task_id}: Loading pages from JSON")
         pages = load_pages_from_json(local_temp_path)
-        logger.info(f"Task {task_id}: Loaded {len(pages)} pages")
-
-        # 3. Build LLM analysis input
-        analysis_input = build_analysis_input(pages)
-
-        # 4. Collect known authors from existing documents in this KB
-        known_authors: List[str] = []
-        try:
-            rows = (
-                db.query(Document.analysis)
-                .filter(
-                    Document.knowledge_base_id == kb_id, Document.analysis.isnot(None)
-                )
-                .all()
-            )
-            seen: set[str] = set()
-            for (analysis,) in rows:
-                if isinstance(analysis, dict):
-                    author = (analysis.get("metadata") or {}).get("main_author", "")
-                    if author and author not in seen:
-                        known_authors.append(author)
-                        seen.add(author)
-        except Exception as exc:
-            logger.warning(f"Task {task_id}: Could not fetch known authors: {exc}")
-
-        # 5. LLM analysis — raises BookIndexingError on failure
-        logger.info(f"Task {task_id}: Running LLM book analysis")
-        t0 = time.monotonic()
-        book_index = index_book(analysis_input, known_authors=known_authors or None)
-        logger.info(
-            f"Task {task_id}: Analysis complete in {time.monotonic() - t0:.1f}s — "
-            f"{len(book_index.works)} works found, "
-            f"author: {book_index.metadata.main_author}"
+        analysis, work_docs, page_docs, final_file_name = _analyze_book_pages(
+            db=db,
+            kb_id=kb_id,
+            task_id=task_id,
+            file_name=file_name,
+            pages=pages,
+            display_suffix=".json",
         )
-
-        if book_index.toc_find_failed or book_index.toc is None:
-            reason = book_index.toc_failure_reason.strip() or (
-                "LLM could not verify that the extracted candidate TOC pages "
-                "actually contain a table of contents."
-            )
-            raise BookIndexingError(f"TOC find failed: {reason}")
-
-        if not book_index.works:
-            raise BookIndexingError(
-                "LLM found no works in the table of contents. "
-                "Ensure the document contains a readable мазмұны/содержание page."
-            )
-
-        # 6. Extract work-level text segments and raw pages
-        work_docs = extract_works(pages, book_index, file_name)
-        if not work_docs:
-            raise BookIndexingError(
-                "All works produced empty text after extraction. "
-                "Check that page numbers in the table of contents are correct."
-            )
-        page_docs = extract_pages(pages, book_index, file_name)
-        logger.info(f"Task {task_id}: Extracted {len(work_docs)} work segments")
-
-        # 7. Determine display file name (rename to "Author - Title.json" if available)
-        main_author = book_index.metadata.main_author.strip()
-        book_title = book_index.metadata.book_title.strip()
-        if main_author and book_title:
-            final_file_name = f"{main_author} - {book_title}.json"
-        else:
-            final_file_name = file_name
-        # Use the UUID from the temp path as the permanent object name so MinIO
-        # never sees non-ASCII characters in the object key.
-        existing_document = _find_document_conflict(
-            db,
-            kb_id,
-            task.document_upload.file_hash,
-            final_file_name,
-        )
-        if existing_document:
-            minio_client.remove_object(settings.MINIO_BUCKET_NAME, temp_path)
-            _mark_task_completed_with_existing_document(
-                db, task_id, existing_document.id
-            )
-            logger.info(
-                "Task %d: Reused existing processed document %d",
-                task_id,
-                existing_document.id,
-            )
-            return
-
-        temp_object_name = temp_path.split("/")[-1]  # e.g. "d4156c80....json"
-        permanent_path = f"kb_{kb_id}/{temp_object_name}"
-
-        # Move temp → permanent (single copy, no intermediate step)
-        t0 = time.monotonic()
-        try:
-            source = CopySource(settings.MINIO_BUCKET_NAME, temp_path)
-            minio_client.copy_object(
-                bucket_name=settings.MINIO_BUCKET_NAME,
-                object_name=permanent_path,
-                source=source,
-            )
-            minio_client.remove_object(
-                bucket_name=settings.MINIO_BUCKET_NAME,
-                object_name=temp_path,
-            )
-        except MinioException as exc:
-            raise BookIndexingError(
-                f"Failed to move file to permanent storage: {exc}"
-            ) from exc
-        logger.info(f"Task {task_id}: MinIO move in {time.monotonic() - t0:.1f}s")
-
-        # 8. Create Document record
-        document = Document(
-            file_name=final_file_name,
-            file_path=permanent_path,
-            file_hash=task.document_upload.file_hash,
-            file_size=task.document_upload.file_size,
-            content_type=task.document_upload.content_type,
-            knowledge_base_id=kb_id,
-            analysis=book_index.model_dump(),
-        )
-        db.add(document)
-        db.commit()
-        db.refresh(document)
-        document_id = document.id
-        task.document_id = document.id
-        db.commit()
-        logger.info(f"Task {task_id}: Document record created (id={document.id})")
-
-        # 9. Store DocumentChunk records in DB
-        t0 = time.monotonic()
-        for i, doc in enumerate(work_docs):
-            chunk_id = hashlib.sha256(
-                (
-                    f"work:{kb_id}:{final_file_name}:"
-                    f"{doc.metadata.get('work_title', i)}:{doc.page_content[:200]}"
-                ).encode()
-            ).hexdigest()
-
-            doc.metadata["kb_id"] = kb_id
-            doc.metadata["document_id"] = document.id
-            doc.metadata["chunk_id"] = chunk_id
-            doc.metadata["chunk_type"] = "work"
-
-            db_chunk = DocumentChunk(
-                id=chunk_id,
-                document_id=document.id,
-                kb_id=kb_id,
-                file_name=file_name,
-                chunk_type="work",
-                chunk_label=doc.metadata.get("work_title"),
-                start_page=doc.metadata.get("start_page"),
-                end_page=doc.metadata.get("end_page"),
-                chunk_metadata={"page_content": doc.page_content, **doc.metadata},
-                hash=hashlib.sha256(
-                    (doc.page_content + str(doc.metadata)).encode()
-                ).hexdigest(),
-            )
-            db.add(db_chunk)
-
-            if i > 0 and i % 50 == 0:
-                db.commit()
-
-        for i, doc in enumerate(page_docs):
-            page_number = int(doc.metadata.get("page_number", 0))
-            chunk_id = hashlib.sha256(
-                f"page:{kb_id}:{final_file_name}:{page_number}:{doc.page_content[:200]}".encode()
-            ).hexdigest()
-
-            doc.metadata["kb_id"] = kb_id
-            doc.metadata["document_id"] = document.id
-            doc.metadata["chunk_id"] = chunk_id
-            doc.metadata["chunk_type"] = "page"
-
-            db_chunk = DocumentChunk(
-                id=chunk_id,
-                document_id=document.id,
-                kb_id=kb_id,
-                file_name=file_name,
-                chunk_type="page",
-                chunk_label=f"Page {page_number}",
-                page_number=page_number,
-                start_page=page_number,
-                end_page=page_number,
-                chunk_metadata={"page_content": doc.page_content, **doc.metadata},
-                hash=hashlib.sha256(
-                    (doc.page_content + str(doc.metadata)).encode()
-                ).hexdigest(),
-            )
-            db.add(db_chunk)
-
-            if i > 0 and i % 100 == 0:
-                db.commit()
-
-        db.commit()
-        logger.info(
-            f"Task {task_id}: Stored "
-            f"{len(work_docs) + len(page_docs)} chunk records "
-            f"in {time.monotonic() - t0:.1f}s"
+        document_id, permanent_path = _persist_book_document(
+            task=task,
+            db=db,
+            temp_path=temp_path,
+            file_name=file_name,
+            kb_id=kb_id,
+            minio_client=minio_client,
+            analysis=analysis,
+            work_docs=work_docs,
+            page_docs=page_docs,
+            final_file_name=final_file_name,
         )
 
         # 11. Mark completed
         task.status = "completed"
-        task.document_id = document.id
+        task.document_id = document_id
         upload = task.document_upload
         if upload:
             upload.status = "completed"

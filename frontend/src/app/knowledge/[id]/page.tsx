@@ -167,7 +167,7 @@ export default function KnowledgeBaseDetailPage({
     <DashboardLayout>
       <div className="mx-auto max-w-4xl space-y-6">
         <div className="rounded-2xl border bg-card p-6 shadow-sm">
-          <h2 className="text-lg font-semibold">Құжаттар</h2>
+          <h2 className="text-lg font-semibold">Кітаптар</h2>
           {documents.length ? (
             <Tabs defaultValue="books" className="mt-4 w-full">
               <TabsList className="grid w-full grid-cols-2">
@@ -187,7 +187,7 @@ export default function KnowledgeBaseDetailPage({
             </Tabs>
           ) : (
             <div className="mt-4 text-sm text-muted-foreground">
-              Құжаттар қолжетімді емес.
+              Кітаптар қолжетімді емес.
             </div>
           )}
         </div>
