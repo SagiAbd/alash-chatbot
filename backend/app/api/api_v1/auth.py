@@ -7,11 +7,12 @@ from sqlalchemy.orm import Session
 
 from app.core import security
 from app.core.config import settings
-from app.core.security import get_current_admin
+from app.core.security import get_current_admin, get_current_user
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.token import Token
 from app.schemas.user import UserCreate, UserResponse
+from app.services.personal_library import ensure_personal_kb
 
 router = APIRouter()
 
@@ -21,7 +22,8 @@ def _get_user_by_identifier(db: Session, identifier: str) -> User | None:
     return (
         db.query(User)
         .filter(
-            (User.username == identifier.strip()) | (User.email == normalized_identifier)
+            (User.username == identifier.strip())
+            | (User.email == normalized_identifier)
         )
         .first()
     )
@@ -41,7 +43,10 @@ def register(*, db: Session = Depends(get_db), user_in: UserCreate) -> Any:
 
     existing_user = (
         db.query(User)
-        .filter((User.username == normalized_username) | (User.email == normalized_email))
+        .filter(
+            (User.username == normalized_username)
+            | (User.email == normalized_email)
+        )
         .first()
     )
     if existing_user:
@@ -62,6 +67,7 @@ def register(*, db: Session = Depends(get_db), user_in: UserCreate) -> Any:
     db.add(user)
     db.commit()
     db.refresh(user)
+    ensure_personal_kb(db, user)
     return user
 
 

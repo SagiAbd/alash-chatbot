@@ -1,6 +1,7 @@
-from pydantic import BaseModel
-from typing import List, Optional
 from datetime import datetime
+from typing import List, Optional
+
+from pydantic import BaseModel
 
 
 class MessageBase(BaseModel):
@@ -36,7 +37,8 @@ class ChatUpdate(ChatBase):
 
 class ChatResponse(ChatBase):
     id: int
-    user_id: int
+    user_id: Optional[int] = None
+    is_public: bool = False
     created_at: datetime
     updated_at: datetime
     messages: List[MessageResponse] = []

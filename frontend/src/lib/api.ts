@@ -54,7 +54,7 @@ export async function fetchApi(fullUrl: string, options: FetchOptions = {}) {
     if (response.status === 401 && !isAuthLoginRequest) {
       if (typeof window !== 'undefined') {
         localStorage.removeItem('token');
-        window.location.href = '/admin/login';
+        window.location.href = '/login';
       }
       throw new ApiError(401, 'Unauthorized - Please log in again');
     }

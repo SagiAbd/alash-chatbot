@@ -2,6 +2,14 @@
 
 ## [2026-04-15]
 
+### Changed
+- Started the unified app-shell rollout by replacing the public landing/admin split with a shared sidebar workspace, moving primary navigation toward `/`, `/chat/*`, `/knowledge`, `/library`, and `/settings`, and redirecting legacy `/admin/*` and `/dashboard/*` paths into the new structure
+- Switched login flows to the shared `/login` entry, updated post-auth redirects to return every role to the unified experience, and made unauthenticated sidebar users guests instead of forcing an admin redirect
+
+### Added
+- Added top-level shared chat routes with automatic chat creation on `/chat/new`, a new `/library` page for authenticated users' personal uploads, and public/main-knowledge read views under `/knowledge`
+- Added backend support for the unified role model with optional-auth chat endpoints, authenticated personal-library endpoints, and public read-only knowledge-base endpoints
+
 ### Improved
 - Replaced the outdated root README with a repo-accurate guide covering the public/admin route split, current no-vector-store architecture, local startup, admin bootstrap, and the current dev URLs
 - Refreshed the root README again for the local-auth rollout, documenting shared sign-in and registration, env vars, and local admin bootstrap
@@ -20,6 +28,7 @@
 ### Fixed
 - Matched public chat streaming behavior to the admin chat by hiding empty assistant bubbles during think-only phases and showing the `Ойланудамын` status card only until visible answer text starts streaming
 - Reworked auth redirects so public-session failures no longer dump users onto the admin login page, while admin pages still route invalid sessions back through the admin login flow
+- Ensured every newly registered user gets a personal knowledge base immediately and hid personal libraries from the admin knowledge-base list
 
 ### Added
 - Added local database-backed registration and sign-in for all users, plus `/api/auth/me` for post-login routing between public users and admins

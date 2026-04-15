@@ -403,7 +403,13 @@ def get_knowledge_bases(
     Retrieve knowledge bases.
     """
     del current_user
-    knowledge_bases = db.query(KnowledgeBase).offset(skip).limit(limit).all()
+    knowledge_bases = (
+        db.query(KnowledgeBase)
+        .filter(KnowledgeBase.is_personal.is_(False))
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
     return knowledge_bases
 
 
@@ -424,7 +430,10 @@ def get_knowledge_base(
         .options(
             joinedload(KnowledgeBase.documents).joinedload(Document.processing_tasks)
         )
-        .filter(KnowledgeBase.id == kb_id)
+        .filter(
+            KnowledgeBase.id == kb_id,
+            KnowledgeBase.is_personal.is_(False),
+        )
         .first()
     )
 
@@ -449,7 +458,10 @@ def export_knowledge_base(
         .options(
             selectinload(KnowledgeBase.documents).selectinload(Document.chunks)
         )
-        .filter(KnowledgeBase.id == kb_id)
+        .filter(
+            KnowledgeBase.id == kb_id,
+            KnowledgeBase.is_personal.is_(False),
+        )
         .first()
     )
     if not kb:

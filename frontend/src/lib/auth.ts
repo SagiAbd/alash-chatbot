@@ -24,13 +24,6 @@ export function getPostAuthDestination(
   user: AuthenticatedUser,
   nextPath: string,
 ): string {
-  if (user.is_superuser) {
-    return nextPath.startsWith("/admin") ? nextPath : "/admin";
-  }
-
-  if (nextPath.startsWith("/admin")) {
-    return "/";
-  }
-
+  void user;
   return nextPath;
 }

@@ -1,18 +1,16 @@
-from typing import Any
+from typing import Any, List
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 
 from app.db.session import get_db
-from app.models.chat import Chat
-from app.models.knowledge import KnowledgeBase
+from app.models.knowledge import Document, KnowledgeBase
 from app.schemas.app_settings import PublicConfigResponse
+from app.schemas.knowledge import DocumentResponse, KnowledgeBaseResponse
 from app.services.app_settings import (
     get_or_create_app_settings,
     get_public_welcome_content,
 )
-from app.services.chat_service import generate_response
 
 router = APIRouter()
 
@@ -60,55 +58,55 @@ def get_public_config(db: Session = Depends(get_db)) -> Any:
     )
 
 
-@router.post("/chat")
-def create_public_chat(db: Session = Depends(get_db)) -> Any:
-    kb = _get_public_kb(db)
-    chat = Chat(
-        title="Public Chat",
-        user_id=None,
-        is_public=True,
-    )
-    chat.knowledge_bases = [kb]
-    db.add(chat)
-    db.commit()
-    db.refresh(chat)
-    return {"id": chat.id}
-
-
-@router.post("/chat/{chat_id}/messages")
-async def create_public_message(
-    *,
-    db: Session = Depends(get_db),
-    chat_id: int,
-    messages: dict,
-) -> StreamingResponse:
-    chat = (
-        db.query(Chat)
-        .options(joinedload(Chat.knowledge_bases))
-        .filter(Chat.id == chat_id, Chat.is_public.is_(True))
+@router.get("/knowledge-base", response_model=KnowledgeBaseResponse)
+def get_public_knowledge_base(db: Session = Depends(get_db)) -> Any:
+    """Return the main (public) knowledge base with its documents."""
+    kb = (
+        db.query(KnowledgeBase)
+        .options(
+            joinedload(KnowledgeBase.documents).joinedload(Document.processing_tasks)
+        )
+        .filter(KnowledgeBase.id == _get_public_kb(db).id)
         .first()
     )
-    if not chat:
-        raise HTTPException(status_code=404, detail="Chat not found")
+    return kb
 
-    last_message = messages["messages"][-1]
-    if last_message["role"] != "user":
-        raise HTTPException(status_code=400, detail="Last message must be from user")
 
-    knowledge_base_ids = [kb.id for kb in chat.knowledge_bases]
-
-    async def response_stream():
-        async for chunk in generate_response(
-            query=last_message["content"],
-            messages=messages,
-            knowledge_base_ids=knowledge_base_ids,
-            chat_id=chat_id,
-            db=db,
-        ):
-            yield chunk
-
-    return StreamingResponse(
-        response_stream(),
-        media_type="text/event-stream",
-        headers={"x-vercel-ai-data-stream": "v1"},
+@router.get(
+    "/knowledge-base/documents",
+    response_model=List[DocumentResponse],
+)
+def list_public_documents(db: Session = Depends(get_db)) -> Any:
+    """List the documents belonging to the main (public) knowledge base."""
+    kb = _get_public_kb(db)
+    documents = (
+        db.query(Document)
+        .filter(Document.knowledge_base_id == kb.id)
+        .order_by(Document.created_at.desc())
+        .all()
     )
+    return documents
+
+
+@router.get(
+    "/knowledge-base/documents/{document_id}",
+    response_model=DocumentResponse,
+)
+def get_public_document(
+    *,
+    db: Session = Depends(get_db),
+    document_id: int,
+) -> Any:
+    """Fetch a single document from the main (public) knowledge base."""
+    kb = _get_public_kb(db)
+    document = (
+        db.query(Document)
+        .filter(
+            Document.knowledge_base_id == kb.id,
+            Document.id == document_id,
+        )
+        .first()
+    )
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return document

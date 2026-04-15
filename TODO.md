@@ -5,12 +5,13 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 ### Todo
 
 - Set admin accounts  
-- Option of adding new sources by user  
-- Give users option to see kb  
-- Remove main page  
 - deploy  
 
 ### In Progress
+
+- unify chat UI into top-level app shell with guest, user, and admin tiers
+- add per-user personal library and sidebar chat history
+- replace admin-only routing with shared `/`, `/knowledge`, `/library`, and `/settings`
 
 ### Done
 
@@ -57,3 +58,6 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 - fix event loop blocking during document processing  
 - remove vector store from processing and retrieval paths  
 - Clean ocr.json from hallucinations  
+- Option of adding new sources by user  
+- Give users option to see kb  
+- Remove main page  
