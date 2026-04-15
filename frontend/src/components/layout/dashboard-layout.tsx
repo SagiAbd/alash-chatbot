@@ -82,11 +82,8 @@ export default function DashboardLayout({
     const items = [
       { name: "Chat", href: "/", icon: MessageSquare },
       { name: "Knowledge Base", href: "/knowledge", icon: Book },
+      { name: "My Library", href: "/library", icon: Library },
     ];
-
-    if (user) {
-      items.push({ name: "My Library", href: "/library", icon: Library });
-    }
 
     if (isAdmin(user)) {
       items.push({ name: "Settings", href: "/settings", icon: Settings });

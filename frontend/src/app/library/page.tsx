@@ -1,10 +1,11 @@
 "use client";
 
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { FileIcon, defaultStyles } from "react-file-icon";
-import { Loader2, Trash2, Upload } from "lucide-react";
+import { Library, Loader2, LogIn, Trash2, Upload, UserPlus } from "lucide-react";
 import DashboardLayout from "@/components/layout/dashboard-layout";
+import { AuthenticatedUser } from "@/lib/auth";
 import { ApiError, api } from "@/lib/api";
 import { fetchCurrentUser } from "@/lib/session";
 import { useToast } from "@/components/ui/use-toast";
@@ -34,8 +35,8 @@ function fileIcon(contentType: string, fileName: string) {
 }
 
 export default function LibraryPage() {
-  const router = useRouter();
   const { toast } = useToast();
+  const [user, setUser] = useState<AuthenticatedUser | null | undefined>(undefined);
   const [documents, setDocuments] = useState<LibraryDocument[]>([]);
   const [tasks, setTasks] = useState<LibraryTask[]>([]);
   const [loading, setLoading] = useState(true);
@@ -70,15 +71,16 @@ export default function LibraryPage() {
   useEffect(() => {
     const bootstrap = async () => {
       const currentUser = await fetchCurrentUser();
+      setUser(currentUser);
       if (!currentUser) {
-        router.replace("/login?next=/library");
+        setLoading(false);
         return;
       }
       await loadLibrary();
     };
 
     void bootstrap();
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     if (!hasActiveTasks) {
@@ -158,20 +160,61 @@ export default function LibraryPage() {
               alongside the public knowledge base when you chat.
             </p>
           </div>
-          <label className="inline-flex cursor-pointer items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-            <Upload className="mr-2 h-4 w-4" />
-            {uploading ? "Uploading..." : "Upload file"}
-            <input
-              type="file"
-              accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-              className="hidden"
-              disabled={uploading}
-              onChange={handleUpload}
-            />
-          </label>
+          {user ? (
+            <label className="inline-flex cursor-pointer items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+              <Upload className="mr-2 h-4 w-4" />
+              {uploading ? "Uploading..." : "Upload file"}
+              <input
+                type="file"
+                accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                className="hidden"
+                disabled={uploading}
+                onChange={handleUpload}
+              />
+            </label>
+          ) : (
+            <Link
+              href="/login?next=/library"
+              className="inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              <LogIn className="mr-2 h-4 w-4" />
+              Sign in to upload
+            </Link>
+          )}
         </div>
 
-        {tasks.length > 0 && (
+        {user === null && (
+          <div className="rounded-2xl border bg-card p-8 shadow-sm">
+            <div className="mx-auto max-w-2xl text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                <Library className="h-7 w-7" />
+              </div>
+              <h2 className="mt-4 text-2xl font-semibold">My Library requires an account</h2>
+              <p className="mt-3 text-sm text-muted-foreground">
+                Sign in or create an account to upload personal documents and use
+                them alongside the public knowledge base during chat.
+              </p>
+              <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
+                <Link
+                  href="/login?next=/library"
+                  className="inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                >
+                  <LogIn className="mr-2 h-4 w-4" />
+                  Sign in
+                </Link>
+                <Link
+                  href="/register?next=/library"
+                  className="inline-flex items-center justify-center rounded-lg border px-4 py-2 text-sm font-medium hover:bg-accent"
+                >
+                  <UserPlus className="mr-2 h-4 w-4" />
+                  Create account
+                </Link>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {user && tasks.length > 0 && (
           <div className="rounded-2xl border bg-card p-6 shadow-sm">
             <h2 className="text-lg font-semibold">Processing</h2>
             <div className="mt-4 space-y-3">
@@ -202,46 +245,48 @@ export default function LibraryPage() {
           </div>
         )}
 
-        <div className="rounded-2xl border bg-card p-6 shadow-sm">
-          <h2 className="text-lg font-semibold">Documents</h2>
+        {user && (
+          <div className="rounded-2xl border bg-card p-6 shadow-sm">
+            <h2 className="text-lg font-semibold">Documents</h2>
 
-          {loading ? (
-            <div className="py-10 text-sm text-muted-foreground">Loading library...</div>
-          ) : documents.length === 0 ? (
-            <div className="py-10 text-sm text-muted-foreground">
-              No personal documents yet.
-            </div>
-          ) : (
-            <div className="mt-4 space-y-3">
-              {documents.map((document) => (
-                <div
-                  key={document.id}
-                  className="flex items-center justify-between rounded-xl border px-4 py-4"
-                >
-                  <div className="flex min-w-0 items-center gap-4">
-                    <div className="h-10 w-10 shrink-0">
-                      {fileIcon(document.content_type, document.file_name)}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="truncate font-medium">{document.file_name}</div>
-                      <div className="text-sm text-muted-foreground">
-                        {new Date(document.created_at).toLocaleString()} ·{" "}
-                        {(document.file_size / 1024 / 1024).toFixed(2)} MB
+            {loading ? (
+              <div className="py-10 text-sm text-muted-foreground">Loading library...</div>
+            ) : documents.length === 0 ? (
+              <div className="py-10 text-sm text-muted-foreground">
+                No personal documents yet.
+              </div>
+            ) : (
+              <div className="mt-4 space-y-3">
+                {documents.map((document) => (
+                  <div
+                    key={document.id}
+                    className="flex items-center justify-between rounded-xl border px-4 py-4"
+                  >
+                    <div className="flex min-w-0 items-center gap-4">
+                      <div className="h-10 w-10 shrink-0">
+                        {fileIcon(document.content_type, document.file_name)}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="truncate font-medium">{document.file_name}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {new Date(document.created_at).toLocaleString()} ·{" "}
+                          {(document.file_size / 1024 / 1024).toFixed(2)} MB
+                        </div>
                       </div>
                     </div>
+                    <button
+                      onClick={() => handleDelete(document.id)}
+                      className="rounded-lg p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      aria-label={`Delete ${document.file_name}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
                   </div>
-                  <button
-                    onClick={() => handleDelete(document.id)}
-                    className="rounded-lg p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                    aria-label={`Delete ${document.file_name}`}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </DashboardLayout>
   );
