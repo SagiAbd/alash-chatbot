@@ -4,20 +4,24 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 
 ### Todo
 
+- Set admin accounts  
+- Option of adding new sources by user  
+- Give users option to see kb  
+- Remove main page  
 - deploy  
-- set admin and avg user permissions  
 
 ### In Progress
 
-- remove rag web ui references alongside the app. its logo too
-- public + admin deployment split
-- add public kazakh landing page and public chat
-- add admin-only access, settings, and public chatbot kb selection
-
 ### Done
 
-- fix kb upload duplicates
-- fix bugs in kb upload
+- Add local login and registration  
+- set admin and avg user permissions  
+- add admin-only access, settings, and public chatbot kb selection  
+- add public kazakh landing page and public chat  
+- public + admin deployment split  
+- remove rag web ui references alongside the app. its logo too  
+- fix kb upload duplicates  
+- fix bugs in kb upload  
 - add glossary tool (fuzzy search over terms database)  
 - add agent steps calling animation  
 - enforce deeper work-level reading before broad author-study answers  

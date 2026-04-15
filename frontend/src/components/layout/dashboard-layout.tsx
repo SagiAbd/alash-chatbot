@@ -28,25 +28,31 @@ export default function DashboardLayout({
     const checkSession = async () => {
       const token = localStorage.getItem("token");
       if (!token) {
-        router.push("/admin/login");
+        router.push(`/admin/login?next=${encodeURIComponent(pathname)}`);
         return;
       }
 
       try {
         await api.post("/api/auth/test-token");
         setIsCheckingSession(false);
-      } catch {
+      } catch (error) {
+        const apiError = error as { status?: number } | undefined;
+        if (apiError?.status === 403) {
+          router.push("/");
+          return;
+        }
+
         localStorage.removeItem("token");
-        router.push("/admin/login");
+        router.push(`/admin/login?next=${encodeURIComponent(pathname)}`);
       }
     };
 
     void checkSession();
-  }, [router]);
+  }, [pathname, router]);
 
   const handleLogout = () => {
     localStorage.removeItem("token");
-    router.push("/admin/login");
+    router.push("/admin/login?next=/admin");
   };
 
   const navigation = [

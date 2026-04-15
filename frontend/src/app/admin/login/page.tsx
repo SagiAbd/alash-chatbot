@@ -1,9 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { api, ApiError } from "@/lib/api";
+import { FormEvent, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { ApiError, api } from "@/lib/api";
+import {
+  AuthenticatedUser,
+  getPostAuthDestination,
+  sanitizeNextPath,
+} from "@/lib/auth";
 
 interface LoginResponse {
   access_token: string;
@@ -12,36 +17,48 @@ interface LoginResponse {
 
 export default function AdminLoginPage() {
   const router = useRouter();
-  const [error, setError] = useState("");
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const error = searchParams.get("error");
+  const fallbackNext = pathname.startsWith("/admin") ? "/admin" : "/";
+  const nextPath = sanitizeNextPath(searchParams.get("next"), fallbackNext);
+  const [submitError, setSubmitError] = useState(error ?? "");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setError("");
+  const registerUrl = useMemo(() => {
+    const params = new URLSearchParams({ next: nextPath });
+    return `/register?${params.toString()}`;
+  }, [nextPath]);
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSubmitError("");
     setLoading(true);
 
-    const formData = new FormData(e.currentTarget);
-    const username = formData.get("username");
-    const password = formData.get("password");
+    const formData = new FormData(event.currentTarget);
+    const username = String(formData.get("username") ?? "").trim();
+    const password = String(formData.get("password") ?? "");
 
     try {
-      const formUrlEncoded = new URLSearchParams();
-      formUrlEncoded.append("username", username as string);
-      formUrlEncoded.append("password", password as string);
+      const encodedBody = new URLSearchParams();
+      encodedBody.append("username", username);
+      encodedBody.append("password", password);
 
-      const data = (await api.post("/api/auth/token", formUrlEncoded, {
+      const tokenData = (await api.post("/api/auth/token", encodedBody, {
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
         },
       })) as LoginResponse;
 
-      localStorage.setItem("token", data.access_token);
-      router.push("/admin");
+      localStorage.setItem("token", tokenData.access_token);
+      const currentUser = (await api.get("/api/auth/me")) as AuthenticatedUser;
+      router.replace(getPostAuthDestination(currentUser, nextPath));
     } catch (err) {
+      localStorage.removeItem("token");
       if (err instanceof ApiError) {
-        setError(err.message);
+        setSubmitError(err.message);
       } else {
-        setError("Кіру сәтсіз аяқталды");
+        setSubmitError("Кіру сәтсіз аяқталды");
       }
     } finally {
       setLoading(false);
@@ -63,7 +80,7 @@ export default function AdminLoginPage() {
                   htmlFor="username"
                   className="block text-sm font-medium text-gray-700"
                 >
-                  Пайдаланушы аты
+                  Пайдаланушы аты немесе email
                 </label>
                 <input
                   id="username"
@@ -71,8 +88,8 @@ export default function AdminLoginPage() {
                   type="text"
                   required
                   disabled={loading}
-                  className="mt-1 block w-full px-3 py-2 rounded-md border border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Пайдаланушы атыңызды енгізіңіз"
+                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
+                  placeholder="Пайдаланушы аты немесе email енгізіңіз"
                 />
               </div>
 
@@ -89,26 +106,36 @@ export default function AdminLoginPage() {
                   type="password"
                   required
                   disabled={loading}
-                  className="mt-1 block w-full px-3 py-2 rounded-md border border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Құпиясөзіңізді енгізіңіз"
+                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
+                  placeholder="Құпиясөзді енгізіңіз"
                 />
               </div>
             </div>
 
-            {error && (
-              <div className="p-3 rounded-md bg-red-50 text-red-700 text-sm">
-                {error}
+            {submitError && (
+              <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">
+                {submitError}
               </div>
             )}
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex w-full items-center justify-center rounded-md bg-gray-700 px-4 py-3 text-sm font-medium text-white shadow-sm transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading ? "Кіріп жатыр..." : "Кіру"}
             </button>
           </form>
+
+          <div className="text-center text-sm text-gray-600">
+            Аккаунтыңыз жоқ па?{" "}
+            <Link
+              href={registerUrl}
+              className="font-medium text-gray-900 hover:text-gray-700"
+            >
+              Тіркелу
+            </Link>
+          </div>
 
           <div className="text-center">
             <Link

@@ -4,6 +4,7 @@
 
 ### Improved
 - Replaced the outdated root README with a repo-accurate guide covering the public/admin route split, current no-vector-store architecture, local startup, admin bootstrap, and the current dev URLs
+- Refreshed the root README again for the local-auth rollout, documenting shared sign-in and registration, env vars, and local admin bootstrap
 - Replaced the admin sidebar's old image-logo usage with a consistent Alash text mark, added a direct "Open public site" admin navigation link, and aligned public/admin entry screens with the same branding treatment
 - Renamed the frontend package from `rag-web-ui-frontend` to `alash-chatbot-frontend` and localized the public chat's setup placeholder text
 - Rewired the remaining dashboard UI actions and redirects so chat and knowledge-base flows now land on `/admin/...` routes consistently during the legacy-dashboard transition
@@ -14,9 +15,14 @@
 - Simplified the login window by removing the Alash/admin banner block, dropping the helper sentence, and shortening the title to `Login`
 - Localized the login window into Kazakh, including the title, field labels, placeholders, submit button, fallback error text, and a shorter `Сайтқа оралу` return link
 - Simplified the public chat empty state by keeping the short `Сұрағыңызды жазыңыз` prompt and removing the longer helper text under the initial bot icon
+- Switched the product to shared local sign-in and registration, with public login entry points routed through `/login`, self-service registration on `/register`, and admin-only page guards that keep non-admin users out of `/admin`
 
 ### Fixed
 - Matched public chat streaming behavior to the admin chat by hiding empty assistant bubbles during think-only phases and showing the `Ойланудамын` status card only until visible answer text starts streaming
+- Reworked auth redirects so public-session failures no longer dump users onto the admin login page, while admin pages still route invalid sessions back through the admin login flow
+
+### Added
+- Added local database-backed registration and sign-in for all users, plus `/api/auth/me` for post-login routing between public users and admins
 
 ## [2026-04-14]
 
