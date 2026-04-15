@@ -61,3 +61,4 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 - Option of adding new sources by user  
 - Give users option to see kb  
 - Remove main page  
+- TypeError: 'auth_provider' is an invalid keyword argument for User

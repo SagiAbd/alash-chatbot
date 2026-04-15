@@ -1,5 +1,6 @@
 from sqlalchemy import Boolean, Column, Integer, String
 from sqlalchemy.orm import relationship
+
 from app.models.base import Base, TimestampMixin
 
 
@@ -12,6 +13,11 @@ class User(Base, TimestampMixin):
     hashed_password = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True)
     is_superuser = Column(Boolean, default=False)
+
+    @property
+    def auth_provider(self) -> str:
+        """Return the local auth provider used by this project."""
+        return "local"
 
     # Relationships
     knowledge_bases = relationship("KnowledgeBase", back_populates="user")

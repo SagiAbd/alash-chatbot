@@ -2,6 +2,9 @@
 
 ## [2026-04-15]
 
+### Fixed
+- Stopped local registration and admin bootstrap from passing nonexistent `auth_provider` and `google_sub` ORM fields into `User`, and exposed a computed `auth_provider="local"` value for API responses so new-account signup works again without a user-table migration
+
 ### Changed
 - Started the unified app-shell rollout by replacing the public landing/admin split with a shared sidebar workspace, moving primary navigation toward `/`, `/chat/*`, `/knowledge`, `/library`, and `/settings`, and redirecting legacy `/admin/*` and `/dashboard/*` paths into the new structure
 - Switched login flows to the shared `/login` entry, updated post-auth redirects to return every role to the unified experience, and made unauthenticated sidebar users guests instead of forcing an admin redirect

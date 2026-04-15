@@ -18,8 +18,6 @@ def upsert_admin_user(username: str, email: str, password: str) -> str:
                 username=username,
                 email=email,
                 hashed_password=get_password_hash(password),
-                auth_provider="local",
-                google_sub=None,
                 is_active=True,
                 is_superuser=True,
             )
@@ -28,8 +26,6 @@ def upsert_admin_user(username: str, email: str, password: str) -> str:
         else:
             user.email = email
             user.hashed_password = get_password_hash(password)
-            user.auth_provider = "local"
-            user.google_sub = None
             user.is_active = True
             user.is_superuser = True
             db.add(user)

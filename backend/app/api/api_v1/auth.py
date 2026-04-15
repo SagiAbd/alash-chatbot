@@ -59,8 +59,6 @@ def register(*, db: Session = Depends(get_db), user_in: UserCreate) -> Any:
         email=normalized_email,
         username=normalized_username,
         hashed_password=security.get_password_hash(user_in.password),
-        auth_provider="local",
-        google_sub=None,
         is_active=True,
         is_superuser=False,
     )
