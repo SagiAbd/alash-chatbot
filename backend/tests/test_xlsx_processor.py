@@ -23,9 +23,12 @@ class XlsxProcessorTests(unittest.TestCase):
             workbook.save(path)
             workbook.close()
 
-            terms = parse_glossary_xlsx(str(path))
+            terms, metadata = parse_glossary_xlsx(str(path))
 
         self.assertEqual(1, len(terms))
+        self.assertEqual("Book", metadata["title"])
+        self.assertEqual("Author", metadata["author"])
+        self.assertEqual("Terms", metadata["sheet_title"])
         self.assertEqual("Ұлт", terms[0]["alash_term"])
         self.assertEqual("Тарих", terms[0]["field"])
         self.assertEqual("Ахмет", terms[0]["author"])
@@ -43,9 +46,10 @@ class XlsxProcessorTests(unittest.TestCase):
             workbook.save(path)
             workbook.close()
 
-            terms = parse_glossary_xlsx(str(path))
+            terms, metadata = parse_glossary_xlsx(str(path))
 
         self.assertEqual(1, len(terms))
+        self.assertEqual("Terms", metadata["sheet_title"])
         self.assertEqual("Алаш", terms[0]["alash_term"])
         self.assertEqual("https://example.test/term", terms[0]["link"])
         self.assertIn("Сілтеме: https://example.test/term", terms[0]["page_content"])

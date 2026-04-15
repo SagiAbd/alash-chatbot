@@ -24,9 +24,16 @@ interface SidebarChat {
   updated_at: string;
 }
 
+interface PublicKnowledgeBase {
+  id: number;
+}
+
 function isRouteActive(pathname: string, href: string): boolean {
   if (href === "/") {
     return pathname === "/" || pathname.startsWith("/chat");
+  }
+  if (href.startsWith("/knowledge/")) {
+    return pathname === "/knowledge" || pathname.startsWith("/knowledge/");
   }
   return pathname === href || pathname.startsWith(`${href}/`);
 }
@@ -42,6 +49,7 @@ export default function DashboardLayout({
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
   const [recentChats, setRecentChats] = useState<SidebarChat[]>([]);
+  const [publicKnowledgeHref, setPublicKnowledgeHref] = useState("/knowledge");
 
   useEffect(() => {
     const loadSession = async () => {
@@ -71,6 +79,26 @@ export default function DashboardLayout({
     void loadChats();
   }, [user, pathname]);
 
+  useEffect(() => {
+    const loadPublicKnowledgeHref = async () => {
+      if (isAdmin(user)) {
+        setPublicKnowledgeHref("/knowledge");
+        return;
+      }
+
+      try {
+        const kb = (await api.get(
+          "/api/public/knowledge-base",
+        )) as PublicKnowledgeBase;
+        setPublicKnowledgeHref(`/knowledge/${kb.id}`);
+      } catch {
+        setPublicKnowledgeHref("/knowledge");
+      }
+    };
+
+    void loadPublicKnowledgeHref();
+  }, [user]);
+
   const handleLogout = () => {
     localStorage.removeItem("token");
     setUser(null);
@@ -81,7 +109,7 @@ export default function DashboardLayout({
   const navigation = useMemo(() => {
     const items = [
       { name: "Чат", href: "/", icon: MessageSquare },
-      { name: "Білім қоры", href: "/knowledge", icon: Book },
+      { name: "Білім қоры", href: publicKnowledgeHref, icon: Book },
       { name: "Менің кітапханам", href: "/library", icon: Library },
     ];
 
@@ -90,7 +118,7 @@ export default function DashboardLayout({
     }
 
     return items;
-  }, [user]);
+  }, [publicKnowledgeHref, user]);
 
   if (isCheckingSession) {
     return <div className="min-h-screen bg-background" />;

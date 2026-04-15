@@ -33,6 +33,13 @@ _COLUMN_PATTERNS: list[tuple[str, str]] = [
     ("сілтеме", "link"),
 ]
 
+_METADATA_LABELS: dict[str, str] = {
+    "кітап атауы": "title",
+    "авторы": "author",
+    "жазылу жылы": "year",
+    "сілтеме": "link",
+}
+
 
 def _normalize_cell_text(value: str) -> str:
     """Normalize header text for resilient substring matching."""
@@ -84,6 +91,23 @@ def _build_page_content(term: dict[str, Any]) -> str:
     return " | ".join(parts)
 
 
+def _extract_sheet_metadata(ws: Any) -> dict[str, str]:
+    """Extract the workbook-style metadata header block from a worksheet."""
+    metadata: dict[str, str] = {}
+    for row in ws.iter_rows(min_row=1, max_row=5, values_only=True):
+        first = ""
+        second = ""
+        if row and len(row) > 0 and row[0] is not None:
+            first = str(row[0]).strip()
+        if row and len(row) > 1 and row[1] is not None:
+            second = str(row[1]).strip()
+        normalized_label = _normalize_cell_text(first)
+        field_key = _METADATA_LABELS.get(normalized_label)
+        if field_key and second:
+            metadata[field_key] = second
+    return metadata
+
+
 def _extract_terms_from_sheet(ws: Any) -> list[dict[str, Any]]:
     """Extract terms from a single worksheet."""
     col_mapping: dict[int, str] = {}
@@ -114,8 +138,10 @@ def _extract_terms_from_sheet(ws: Any) -> list[dict[str, Any]]:
     return terms
 
 
-def parse_glossary_xlsx(file_path: str) -> list[dict[str, Any]]:
-    """Parse a glossary xlsx and return a list of term dicts.
+def parse_glossary_xlsx(
+    file_path: str,
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """Parse a glossary xlsx and return term dicts plus parsed sheet metadata.
 
     Each dict contains normalized field keys and a ``page_content`` key
     suitable for full-text search.  The header row is detected by column
@@ -126,7 +152,9 @@ def parse_glossary_xlsx(file_path: str) -> list[dict[str, Any]]:
         file_path: Local path to the xlsx file.
 
     Returns:
-        List of term dicts.  Empty if no valid header was found.
+        Tuple of parsed term dicts and metadata from the workbook header block.
+        Metadata may include ``title``, ``author``, ``year``, ``link``, and
+        ``sheet_title``. Returns ``([], {})`` if no valid header was found.
     """
     import openpyxl
     from openpyxl.utils.exceptions import InvalidFileException
@@ -142,15 +170,17 @@ def parse_glossary_xlsx(file_path: str) -> list[dict[str, Any]]:
         for ws in wb.worksheets:
             terms = _extract_terms_from_sheet(ws)
             if terms:
+                metadata = _extract_sheet_metadata(ws)
+                metadata["sheet_title"] = ws.title
                 logger.info(
                     "Parsed %d terms from %s (sheet=%s)",
                     len(terms),
                     file_path,
                     ws.title,
                 )
-                return terms
+                return terms, metadata
     finally:
         wb.close()
 
     logger.info("Parsed 0 terms from %s", file_path)
-    return []
+    return [], {}

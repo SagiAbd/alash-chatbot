@@ -2,9 +2,11 @@
 
 import { ChangeEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FileIcon, defaultStyles } from "react-file-icon";
 import {
   Check,
+  Eye,
   Plus,
   Search,
   Settings,
@@ -50,6 +52,7 @@ function renderFileIcon(contentType: string, fileName: string) {
 }
 
 export default function KnowledgePage() {
+  const router = useRouter();
   const { toast } = useToast();
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const [user, setUser] = useState<AuthenticatedUser | null | undefined>(
@@ -58,6 +61,7 @@ export default function KnowledgePage() {
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [publicKbId, setPublicKbId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [redirectingToPublicKb, setRedirectingToPublicKb] = useState(false);
   const [importing, setImporting] = useState(false);
   const [settingPublicId, setSettingPublicId] = useState<number | null>(null);
 
@@ -71,8 +75,10 @@ export default function KnowledgePage() {
         setKnowledgeBases(kbs as KnowledgeBase[]);
         setPublicKbId((settings as AppSettings).public_kb_id);
       } else {
+        setRedirectingToPublicKb(true);
         const kb = (await api.get("/api/public/knowledge-base")) as KnowledgeBase;
-        setKnowledgeBases([kb]);
+        router.replace(`/knowledge/${kb.id}`);
+        return;
       }
     } catch (error) {
       if (error instanceof ApiError) {
@@ -95,7 +101,7 @@ export default function KnowledgePage() {
     };
 
     void bootstrap();
-  }, []);
+  }, [router]);
 
   const handleSetPublic = async (id: number) => {
     setSettingPublicId(id);
@@ -177,6 +183,20 @@ export default function KnowledgePage() {
     }
   };
 
+  if (user === undefined || !isAdmin(user ?? null)) {
+    return (
+      <DashboardLayout>
+        <div className="rounded-2xl border bg-card p-8 text-sm text-muted-foreground shadow-sm">
+          {user === undefined
+            ? "Білім қоры жүктеліп жатыр..."
+            : redirectingToPublicKb
+            ? "Білім қоры ашылып жатыр..."
+            : "Білім қоры жүктеліп жатыр..."}
+        </div>
+      </DashboardLayout>
+    );
+  }
+
   return (
     <DashboardLayout>
       <div className="space-y-8">
@@ -229,26 +249,41 @@ export default function KnowledgePage() {
               <div key={kb.id} className="space-y-4 rounded-2xl border bg-card p-6 shadow-sm">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <h2 className="text-xl font-semibold">{kb.name}</h2>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {kb.description || "Сипаттама берілмеген."}
-                    </p>
-                    <p className="mt-2 text-sm text-muted-foreground">
-                      {kb.documents.length} құжат
-                      {kb.created_at
-                        ? ` · ${new Date(kb.created_at).toLocaleDateString()}`
-                        : ""}
-                    </p>
-                    {(publicKbId === kb.id || !isAdmin(user ?? null)) && (
-                      <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
-                        <Check className="h-3.5 w-3.5" />
-                        Негізгі ашық білім қоры
-                      </div>
-                    )}
+                    {isAdmin(user ?? null) ? (
+                      <>
+                        <h2 className="text-xl font-semibold">{kb.name}</h2>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {kb.description || "Сипаттама берілмеген."}
+                        </p>
+                        <p className="mt-2 text-sm text-muted-foreground">
+                          {kb.documents.length} құжат
+                          {kb.created_at
+                            ? ` · ${new Date(kb.created_at).toLocaleDateString()}`
+                            : ""}
+                        </p>
+                        {publicKbId === kb.id && (
+                          <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+                            <Check className="h-3.5 w-3.5" />
+                            Негізгі ашық білім қоры
+                          </div>
+                        )}
+                      </>
+                    ) : null}
                   </div>
 
-                  {isAdmin(user ?? null) && (
-                    <div className="flex flex-wrap justify-end gap-2">
+                  <div className="flex flex-wrap justify-end gap-2">
+                    {!isAdmin(user ?? null) && (
+                      <Link
+                        href={`/knowledge/${kb.id}`}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-md border hover:bg-accent"
+                        aria-label="Білім қорын ашу"
+                        title="Білім қорын ашу"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Link>
+                    )}
+                    {isAdmin(user ?? null) && (
+                      <>
                       <button
                         type="button"
                         onClick={() => handleSetPublic(kb.id)}
@@ -279,8 +314,9 @@ export default function KnowledgePage() {
                       >
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </button>
-                    </div>
-                  )}
+                      </>
+                    )}
+                  </div>
                 </div>
 
                 {kb.documents.length > 0 ? (
@@ -308,14 +344,16 @@ export default function KnowledgePage() {
                   </div>
                 )}
 
-                <div className="pt-2">
-                  <Link
-                    href={`/knowledge/${kb.id}`}
-                    className="inline-flex items-center justify-center rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
-                  >
-                    Білім қорын ашу
-                  </Link>
-                </div>
+                {isAdmin(user ?? null) && (
+                  <div className="pt-2">
+                    <Link
+                      href={`/knowledge/${kb.id}`}
+                      className="inline-flex items-center justify-center rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
+                    >
+                      Білім қорын ашу
+                    </Link>
+                  </div>
+                )}
               </div>
             ))}
           </div>

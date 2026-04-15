@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import AdminKnowledgeBasePage from "@/app/dashboard/knowledge/[id]/page";
 import DashboardLayout from "@/components/layout/dashboard-layout";
 import { PublicDocumentViewer } from "@/components/knowledge-base/public-document-viewer";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AuthenticatedUser } from "@/lib/auth";
 import { ApiError, api } from "@/lib/api";
 import { fetchCurrentUser, isAdmin } from "@/lib/session";
@@ -40,9 +41,65 @@ interface GlossaryAnalysis {
   term_count: number;
   authors: string[];
   fields: string[];
+  title?: string | null;
+  source_author?: string | null;
 }
 
 type DocumentAnalysis = BookAnalysis | GlossaryAnalysis | null;
+
+type PublicDocument = PublicKnowledgeBase["documents"][number];
+
+function buildDisplayTitle(document: PublicDocument): string {
+  const analysis = document.analysis ?? null;
+  const glossaryAnalysis =
+    (analysis as GlossaryAnalysis | null)?.type === "glossary"
+      ? (analysis as GlossaryAnalysis)
+      : null;
+  const glossaryTitle = glossaryAnalysis?.title?.trim();
+  const glossaryAuthor =
+    glossaryAnalysis?.source_author?.trim() ||
+    glossaryAnalysis?.authors?.[0]?.trim();
+
+  if (glossaryAnalysis && glossaryTitle) {
+    return glossaryAuthor
+      ? `${glossaryAuthor} - ${glossaryTitle}`
+      : glossaryTitle;
+  }
+
+  return document.file_name;
+}
+
+function isGlossaryDocument(document: PublicDocument): boolean {
+  return (document.analysis as GlossaryAnalysis | null)?.type === "glossary";
+}
+
+function DocumentItems({ documents }: { documents: PublicDocument[] }) {
+  if (documents.length === 0) {
+    return (
+      <div className="text-sm text-muted-foreground">
+        Бұл бөлімде құжаттар жоқ.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {documents.map((document) => (
+        <div
+          key={document.id}
+          className="flex items-center justify-between gap-4 rounded-xl border px-4 py-3"
+        >
+          <div className="min-w-0">
+            <div className="truncate font-medium">
+              {buildDisplayTitle(document)}
+            </div>
+          </div>
+          <PublicDocumentViewer document={document} />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function KnowledgeBaseDetailPage({
   params,
@@ -77,7 +134,7 @@ export default function KnowledgeBaseDetailPage({
         setMissing(true);
         if (error instanceof ApiError) {
           toast({
-            title: "Error",
+            title: "Қате",
             description: error.message,
             variant: "destructive",
           });
@@ -92,7 +149,7 @@ export default function KnowledgeBaseDetailPage({
     return (
       <DashboardLayout>
         <div className="mx-auto max-w-3xl rounded-2xl border bg-card p-8 text-sm text-muted-foreground shadow-sm">
-          This knowledge base is not available.
+          Бұл білім қоры қолжетімсіз.
         </div>
       </DashboardLayout>
     );
@@ -102,41 +159,35 @@ export default function KnowledgeBaseDetailPage({
     return <AdminKnowledgeBasePage />;
   }
 
+  const documents = knowledgeBase?.documents ?? [];
+  const books = documents.filter((document) => !isGlossaryDocument(document));
+  const sheets = documents.filter((document) => isGlossaryDocument(document));
+
   return (
     <DashboardLayout>
       <div className="mx-auto max-w-4xl space-y-6">
         <div className="rounded-2xl border bg-card p-6 shadow-sm">
-          <h1 className="text-3xl font-bold tracking-tight">
-            {knowledgeBase?.name || "Knowledge Base"}
-          </h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {knowledgeBase?.description || "Public knowledge base"}
-          </p>
-        </div>
-
-        <div className="rounded-2xl border bg-card p-6 shadow-sm">
-          <h2 className="text-lg font-semibold">Documents</h2>
-          {knowledgeBase?.documents.length ? (
-            <div className="mt-4 space-y-3">
-              {knowledgeBase.documents.map((document) => (
-                <div
-                  key={document.id}
-                  className="flex items-center justify-between gap-4 rounded-xl border px-4 py-3"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate font-medium">{document.file_name}</div>
-                    <div className="mt-1 text-sm text-muted-foreground">
-                      {document.content_type} ·{" "}
-                      {new Date(document.created_at).toLocaleString()}
-                    </div>
-                  </div>
-                  <PublicDocumentViewer document={document} />
-                </div>
-              ))}
-            </div>
+          <h2 className="text-lg font-semibold">Құжаттар</h2>
+          {documents.length ? (
+            <Tabs defaultValue="books" className="mt-4 w-full">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="books">
+                  Кітаптар ({books.length})
+                </TabsTrigger>
+                <TabsTrigger value="sheets">
+                  Пәнсөздер ({sheets.length})
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="books" className="mt-4">
+                <DocumentItems documents={books} />
+              </TabsContent>
+              <TabsContent value="sheets" className="mt-4">
+                <DocumentItems documents={sheets} />
+              </TabsContent>
+            </Tabs>
           ) : (
             <div className="mt-4 text-sm text-muted-foreground">
-              No documents are available.
+              Құжаттар қолжетімді емес.
             </div>
           )}
         </div>

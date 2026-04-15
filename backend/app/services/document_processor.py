@@ -246,7 +246,7 @@ def _process_xlsx_document(
 
         # 2. Parse terms
         try:
-            terms = parse_glossary_xlsx(local_temp_path)
+            terms, glossary_metadata = parse_glossary_xlsx(local_temp_path)
         except ValueError as exc:
             raise BookIndexingError(str(exc)) from exc
         if not terms:
@@ -298,6 +298,10 @@ def _process_xlsx_document(
             "term_count": len(terms),
             "authors": authors,
             "fields": fields,
+            "title": (glossary_metadata.get("title") or "").strip() or None,
+            "source_author": (
+                (glossary_metadata.get("author") or "").strip() or None
+            ),
         }
 
         # 5. Create Document record

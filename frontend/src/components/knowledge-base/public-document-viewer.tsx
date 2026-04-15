@@ -30,6 +30,8 @@ interface GlossaryAnalysis {
   term_count: number;
   authors: string[];
   fields: string[];
+  title?: string | null;
+  source_author?: string | null;
 }
 
 type DocumentAnalysis = BookAnalysis | GlossaryAnalysis | null;
@@ -60,6 +62,23 @@ interface PublicDocument {
 
 function isGlossary(analysis: DocumentAnalysis): analysis is GlossaryAnalysis {
   return (analysis as GlossaryAnalysis | null)?.type === "glossary";
+}
+
+function getGlossaryDisplayTitle(
+  document: PublicDocument,
+  analysis: GlossaryAnalysis,
+): string {
+  const glossaryTitle = analysis.title?.trim();
+  const glossaryAuthor =
+    analysis.source_author?.trim() || analysis.authors?.[0]?.trim();
+
+  if (!glossaryTitle) {
+    return document.file_name;
+  }
+
+  return glossaryAuthor
+    ? `${glossaryAuthor} - ${glossaryTitle}`
+    : glossaryTitle;
 }
 
 function Section({
@@ -206,9 +225,9 @@ export function PublicDocumentViewer({
       const message =
         error instanceof ApiError
           ? error.message
-          : "Could not load this document.";
+          : "Бұл құжатты жүктеу мүмкін болмады.";
       toast({
-        title: "Unable to open document",
+        title: "Құжат ашылмады",
         description: message,
         variant: "destructive",
       });
@@ -228,7 +247,7 @@ export function PublicDocumentViewer({
     <>
       <Button variant="outline" size="sm" onClick={handleOpen} className="gap-2">
         <BookOpen className="h-4 w-4" />
-        Open
+        Ашу
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -237,10 +256,10 @@ export function PublicDocumentViewer({
             <>
               <DialogHeader className="pb-2">
                 <DialogTitle className="text-xl leading-tight">
-                  {document.file_name}
+                  {getGlossaryDisplayTitle(document, analysis)}
                 </DialogTitle>
                 <p className="text-sm text-muted-foreground">
-                  {analysis.term_count} terms
+                  {analysis.term_count} термин
                   {analysis.fields.length > 0 &&
                     ` · ${analysis.fields.slice(0, 4).join(", ")}`}
                 </p>
@@ -250,10 +269,10 @@ export function PublicDocumentViewer({
                 {loading ? (
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Loading glossary...
+                    Глоссарий жүктеліп жатыр...
                   </div>
                 ) : chunks.length > 0 ? (
-                  <Section title={`Terms (${chunks.length})`}>
+                  <Section title={`Терминдер (${chunks.length})`}>
                     <div className="divide-y">
                       {chunks.map((chunk, idx) => (
                         <TermChunk key={chunk.id} chunk={chunk} idx={idx} />
@@ -261,7 +280,7 @@ export function PublicDocumentViewer({
                     </div>
                   </Section>
                 ) : (
-                  <p className="text-muted-foreground">No glossary content found.</p>
+                  <p className="text-muted-foreground">Глоссарий мазмұны табылмады.</p>
                 )}
               </div>
             </>
