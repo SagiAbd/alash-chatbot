@@ -61,19 +61,6 @@ export default function Home() {
             </Link>
           </div>
         </div>
-
-        <div className="text-center bg-gray-100 rounded-3xl p-16">
-          <h2 className="text-4xl font-bold mb-6">Сұрақ қоюға дайынсыз ба?</h2>
-          <p className="text-xl text-gray-500 mb-8 max-w-2xl mx-auto">
-            Қоғамдық чат таңдалған білім қоры бойынша жауап береді.
-          </p>
-          <Link
-            href="/chat"
-            className="px-8 py-4 bg-blue-600 text-white rounded-full text-lg font-medium transition-all duration-300 hover:bg-blue-700"
-          >
-            Чатты ашу
-          </Link>
-        </div>
       </div>
     </main>
   );
