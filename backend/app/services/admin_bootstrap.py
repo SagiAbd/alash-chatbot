@@ -18,6 +18,8 @@ def upsert_admin_user(username: str, email: str, password: str) -> str:
                 username=username,
                 email=email,
                 hashed_password=get_password_hash(password),
+                auth_provider="local",
+                google_sub=None,
                 is_active=True,
                 is_superuser=True,
             )
@@ -26,6 +28,8 @@ def upsert_admin_user(username: str, email: str, password: str) -> str:
         else:
             user.email = email
             user.hashed_password = get_password_hash(password)
+            user.auth_provider = "local"
+            user.google_sub = None
             user.is_active = True
             user.is_superuser = True
             db.add(user)
@@ -40,7 +44,7 @@ def upsert_admin_user(username: str, email: str, password: str) -> str:
 def bootstrap_admin_from_env() -> str | None:
     """Create or update the admin user from env vars when configured."""
     username = settings.ADMIN_USERNAME.strip()
-    email = settings.ADMIN_EMAIL.strip()
+    email = settings.ADMIN_EMAIL.strip().lower()
     password = settings.ADMIN_PASSWORD
 
     if not username and not email and not password:

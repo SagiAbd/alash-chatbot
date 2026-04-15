@@ -6,20 +6,23 @@ from datetime import datetime
 class UserBase(BaseModel):
     email: EmailStr
     username: str
-    is_active: bool = True
-    is_superuser: bool = False
 
 
 class UserCreate(UserBase):
     password: str
 
 
-class UserUpdate(UserBase):
+class UserUpdate(BaseModel):
+    email: Optional[EmailStr] = None
+    username: Optional[str] = None
     password: Optional[str] = None
 
 
 class UserResponse(UserBase):
     id: int
+    auth_provider: str = "local"
+    is_active: bool
+    is_superuser: bool
     created_at: datetime
     updated_at: datetime
 
