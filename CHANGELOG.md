@@ -1,5 +1,11 @@
 # Changelog
 
+## [2026-04-15]
+
+### Improved
+- Replaced the admin sidebar's old image-logo usage with a consistent Alash text mark, added a direct "Open public site" admin navigation link, and aligned public/admin entry screens with the same branding treatment
+- Renamed the frontend package from `rag-web-ui-frontend` to `alash-chatbot-frontend` and localized the public chat's setup placeholder text
+
 ## [2026-04-14]
 
 ### Fixed

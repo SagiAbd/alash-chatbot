@@ -53,9 +53,22 @@ export default function AdminLoginPage() {
       <div className="w-full max-w-md">
         <div className="bg-white rounded-lg shadow-md p-8 space-y-6">
           <div className="text-center">
-            <h1 className="text-3xl font-bold text-gray-900">Login</h1>
+            <div className="mb-6 inline-flex items-center gap-3 rounded-full border border-gray-200 px-4 py-2">
+              <span className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-900 text-sm font-semibold text-white">
+                A
+              </span>
+              <div className="text-left">
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-gray-500">
+                  Alash Chatbot
+                </p>
+                <p className="text-sm font-medium text-gray-900">
+                  Admin Console
+                </p>
+              </div>
+            </div>
+            <h1 className="text-3xl font-bold text-gray-900">Admin Login</h1>
             <p className="mt-2 text-sm text-gray-600">
-              Please sign in to continue
+              Sign in to manage knowledge bases, public chat, and settings.
             </p>
           </div>
 

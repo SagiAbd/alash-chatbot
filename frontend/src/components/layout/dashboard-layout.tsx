@@ -3,7 +3,14 @@
 import { useState, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
-import { Book, MessageSquare, LogOut, Menu, SlidersHorizontal } from "lucide-react";
+import {
+  Book,
+  ExternalLink,
+  LogOut,
+  Menu,
+  MessageSquare,
+  SlidersHorizontal,
+} from "lucide-react";
 import Breadcrumb from "@/components/ui/breadcrumb";
 import { api } from "@/lib/api";
 
@@ -72,17 +79,22 @@ export default function DashboardLayout({
       >
         <div className="flex h-full flex-col">
           {/* Sidebar header */}
-          <div className="flex h-16 items-center border-b pl-8">
+          <div className="flex h-20 items-center border-b px-6">
             <Link
               href="/admin"
-              className="flex items-center text-lg font-semibold hover:text-primary transition-colors"
+              className="group flex items-center gap-3 transition-colors"
             >
-              <img
-                src="/logo.svg"
-                alt="Logo"
-                className="w-16 h-16 rounded-lg"
-              />
-              Alash Chatbot
+              <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary text-sm font-semibold text-primary-foreground shadow-sm">
+                A
+              </span>
+              <span className="flex flex-col">
+                <span className="text-sm font-semibold text-foreground group-hover:text-primary">
+                  Alash Chatbot
+                </span>
+                <span className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
+                  Admin Console
+                </span>
+              </span>
             </Link>
           </div>
 
@@ -117,6 +129,13 @@ export default function DashboardLayout({
           </nav>
           {/* User profile and logout */}
           <div className="border-t p-4 space-y-4">
+            <Link
+              href="/"
+              className="flex items-center rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors duration-200"
+            >
+              <ExternalLink className="mr-3 h-4 w-4" />
+              Open public site
+            </Link>
             <button
               onClick={handleLogout}
               className="flex w-full items-center rounded-lg px-3 py-2.5 text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors duration-200"

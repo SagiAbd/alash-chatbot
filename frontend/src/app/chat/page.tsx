@@ -145,8 +145,18 @@ export default function PublicChatPage() {
     <main className="min-h-screen bg-gray-50 text-black">
       <div className="max-w-6xl mx-auto px-4 py-8">
         <div className="flex items-center justify-between mb-8">
-          <Link href="/" className="text-sm font-medium text-gray-600 hover:text-gray-900">
-            Alash Chatbot
+          <Link href="/" className="inline-flex items-center gap-3">
+            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-600 text-sm font-semibold text-white shadow-sm">
+              A
+            </span>
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-blue-600">
+                Alash Chatbot
+              </p>
+              <p className="mt-1 text-sm text-gray-500">
+                Қоғамдық чат
+              </p>
+            </div>
           </Link>
           <Link
             href="/admin/login"
@@ -244,7 +254,7 @@ export default function PublicChatPage() {
                 placeholder={
                   chatId
                     ? "Сұрағыңызды осында жазыңыз..."
-                    : "Public chat is preparing..."
+                    : "Қоғамдық чат дайындалып жатыр..."
                 }
                 disabled={!chatId || isLoading}
                 rows={1}

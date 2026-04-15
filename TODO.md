@@ -4,12 +4,12 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 
 ### Todo
 
-- remove rag web ui references alongside the app. its logo too
 - deploy  
 - set admin and avg user permissions  
 
 ### In Progress
 
+- remove rag web ui references alongside the app. its logo too
 - public + admin deployment split
 - add public kazakh landing page and public chat
 - add admin-only access, settings, and public chatbot kb selection
