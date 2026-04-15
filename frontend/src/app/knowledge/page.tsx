@@ -77,7 +77,7 @@ export default function KnowledgePage() {
     } catch (error) {
       if (error instanceof ApiError) {
         toast({
-          title: "Error",
+          title: "Қате",
           description: error.message,
           variant: "destructive",
         });
@@ -105,13 +105,13 @@ export default function KnowledgePage() {
       )) as { public_kb_id: number };
       setPublicKbId(data.public_kb_id);
       toast({
-        title: "Saved",
-        description: "Main public knowledge base updated.",
+        title: "Сақталды",
+        description: "Негізгі ашық білім қоры жаңартылды.",
       });
     } catch (error) {
       if (error instanceof ApiError) {
         toast({
-          title: "Error",
+          title: "Қате",
           description: error.message,
           variant: "destructive",
         });
@@ -122,7 +122,7 @@ export default function KnowledgePage() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm("Delete this knowledge base?")) {
+    if (!confirm("Осы білім қорын жойғыңыз келе ме?")) {
       return;
     }
 
@@ -133,13 +133,13 @@ export default function KnowledgePage() {
         setPublicKbId(null);
       }
       toast({
-        title: "Deleted",
-        description: "Knowledge base deleted successfully.",
+        title: "Жойылды",
+        description: "Білім қоры сәтті жойылды.",
       });
     } catch (error) {
       if (error instanceof ApiError) {
         toast({
-          title: "Error",
+          title: "Қате",
           description: error.message,
           variant: "destructive",
         });
@@ -160,13 +160,13 @@ export default function KnowledgePage() {
       await api.post("/api/knowledge-base/import", formData);
       await loadData(user ?? null);
       toast({
-        title: "Imported",
-        description: `Imported "${file.name}" successfully.`,
+        title: "Импортталды",
+        description: `"${file.name}" файлы сәтті импортталды.`,
       });
     } catch (error) {
       if (error instanceof ApiError) {
         toast({
-          title: "Error",
+          title: "Қате",
           description: error.message,
           variant: "destructive",
         });
@@ -182,11 +182,11 @@ export default function KnowledgePage() {
       <div className="space-y-8">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Knowledge Base</h1>
+            <h1 className="text-3xl font-bold tracking-tight">Білім қоры</h1>
             <p className="mt-2 text-sm text-muted-foreground">
               {isAdmin(user ?? null)
-                ? "Manage the public knowledge base and your admin tools."
-                : "Browse the public knowledge base used by the shared chat."}
+                ? "Ашық білім қорын және әкімші құралдарын басқарыңыз."
+                : "Ортақ чат қолданатын ашық білім қорын шолыңыз."}
             </p>
           </div>
 
@@ -206,14 +206,14 @@ export default function KnowledgePage() {
                 className="inline-flex items-center justify-center rounded-md border px-4 py-2 text-sm font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Upload className="mr-2 h-4 w-4" />
-                {importing ? "Importing..." : "Import KB"}
+                {importing ? "Импортталып жатыр..." : "БҚ импорттау"}
               </button>
               <Link
                 href="/knowledge/new"
                 className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
               >
                 <Plus className="mr-2 h-4 w-4" />
-                New Knowledge Base
+                Жаңа білім қоры
               </Link>
             </div>
           )}
@@ -221,7 +221,7 @@ export default function KnowledgePage() {
 
         {loading ? (
           <div className="rounded-2xl border bg-card p-8 text-sm text-muted-foreground shadow-sm">
-            Loading knowledge bases...
+            Білім қорлары жүктеліп жатыр...
           </div>
         ) : (
           <div className="grid gap-6">
@@ -231,10 +231,10 @@ export default function KnowledgePage() {
                   <div>
                     <h2 className="text-xl font-semibold">{kb.name}</h2>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      {kb.description || "No description provided."}
+                      {kb.description || "Сипаттама берілмеген."}
                     </p>
                     <p className="mt-2 text-sm text-muted-foreground">
-                      {kb.documents.length} documents
+                      {kb.documents.length} құжат
                       {kb.created_at
                         ? ` · ${new Date(kb.created_at).toLocaleDateString()}`
                         : ""}
@@ -242,7 +242,7 @@ export default function KnowledgePage() {
                     {(publicKbId === kb.id || !isAdmin(user ?? null)) && (
                       <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
                         <Check className="h-3.5 w-3.5" />
-                        Main public knowledge base
+                        Негізгі ашық білім қоры
                       </div>
                     )}
                   </div>
@@ -256,10 +256,10 @@ export default function KnowledgePage() {
                         className="inline-flex items-center justify-center rounded-md border px-3 py-2 text-xs font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {publicKbId === kb.id
-                          ? "Public chatbot KB"
+                          ? "Ашық чаттың білім қоры"
                           : settingPublicId === kb.id
-                          ? "Saving..."
-                          : "Set as public chatbot KB"}
+                          ? "Сақталып жатыр..."
+                          : "Ашық чатқа негізгі БҚ ету"}
                       </button>
                       <Link
                         href={`/knowledge/${kb.id}`}
@@ -304,7 +304,7 @@ export default function KnowledgePage() {
                   </div>
                 ) : (
                   <div className="rounded-xl border border-dashed px-4 py-6 text-sm text-muted-foreground">
-                    No documents yet.
+                    Құжаттар әлі жоқ.
                   </div>
                 )}
 
@@ -313,7 +313,7 @@ export default function KnowledgePage() {
                     href={`/knowledge/${kb.id}`}
                     className="inline-flex items-center justify-center rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
                   >
-                    Open knowledge base
+                    Білім қорын ашу
                   </Link>
                 </div>
               </div>

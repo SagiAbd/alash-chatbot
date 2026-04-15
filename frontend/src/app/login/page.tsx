@@ -69,7 +69,7 @@ export default function LoginPage() {
           <div className="text-center">
             <h1 className="text-3xl font-bold text-gray-900">Жүйеге кіру</h1>
             <p className="mt-2 text-sm text-gray-600">
-              Chat history and personal library become available after sign in.
+              Кіргеннен кейін чат тарихы мен жеке кітапхана қолжетімді болады.
             </p>
           </div>
 

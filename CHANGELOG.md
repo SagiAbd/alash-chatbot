@@ -6,6 +6,7 @@
 - Stopped local registration and admin bootstrap from passing nonexistent `auth_provider` and `google_sub` ORM fields into `User`, and exposed a computed `auth_provider="local"` value for API responses so new-account signup works again without a user-table migration
 - Restricted guest chat access to a per-browser guest session token instead of exposing any public chat by numeric ID alone, and removed raw chat/knowledge-base IDs from breadcrumb labels
 - Kept the `My Library` tab visible for guests and replaced the hard redirect on `/library` with a sign-in/register prompt that explains personal-library access requires an account
+- Localized the shared frontend shell and primary guest/user pages into Kazakh, including sidebar navigation, knowledge base, library, auth helper text, and shared chat loading/error copy
 
 ### Changed
 - Started the unified app-shell rollout by replacing the public landing/admin split with a shared sidebar workspace, moving primary navigation toward `/`, `/chat/*`, `/knowledge`, `/library`, and `/settings`, and redirecting legacy `/admin/*` and `/dashboard/*` paths into the new structure

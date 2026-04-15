@@ -80,13 +80,13 @@ export default function DashboardLayout({
 
   const navigation = useMemo(() => {
     const items = [
-      { name: "Chat", href: "/", icon: MessageSquare },
-      { name: "Knowledge Base", href: "/knowledge", icon: Book },
-      { name: "My Library", href: "/library", icon: Library },
+      { name: "Чат", href: "/", icon: MessageSquare },
+      { name: "Білім қоры", href: "/knowledge", icon: Book },
+      { name: "Менің кітапханам", href: "/library", icon: Library },
     ];
 
     if (isAdmin(user)) {
-      items.push({ name: "Settings", href: "/settings", icon: Settings });
+      items.push({ name: "Баптаулар", href: "/settings", icon: Settings });
     }
 
     return items;
@@ -124,10 +124,10 @@ export default function DashboardLayout({
                 </span>
                 <span className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
                   {isAdmin(user)
-                    ? "Admin Workspace"
+                    ? "Әкімші кеңістігі"
                     : user
-                    ? "Personal Workspace"
-                    : "Guest Workspace"}
+                    ? "Жеке кеңістік"
+                    : "Қонақ кеңістігі"}
                 </span>
               </span>
             </Link>
@@ -140,7 +140,7 @@ export default function DashboardLayout({
                 className="flex items-center justify-center rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground transition-all duration-200 hover:bg-primary/90"
               >
                 <Plus className="mr-2 h-4 w-4" />
-                New chat
+                Жаңа чат
               </Link>
 
               {navigation.map((item) => {
@@ -169,12 +169,12 @@ export default function DashboardLayout({
             {user && (
               <div className="mt-8">
                 <div className="mb-3 px-2 text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-                  Recent chats
+                  Соңғы чаттар
                 </div>
                 <div className="space-y-1">
                   {recentChats.length === 0 ? (
                     <div className="rounded-lg px-3 py-2 text-sm text-muted-foreground">
-                      No saved chats yet.
+                      Сақталған чаттар әлі жоқ.
                     </div>
                   ) : (
                     recentChats.map((chat) => (
@@ -188,7 +188,7 @@ export default function DashboardLayout({
                         }`}
                       >
                         <div className="truncate font-medium">
-                          {chat.title || "Untitled chat"}
+                          {chat.title || "Атаусыз чат"}
                         </div>
                         <div className="truncate text-xs text-muted-foreground">
                           {new Date(chat.updated_at).toLocaleString()}
@@ -215,7 +215,7 @@ export default function DashboardLayout({
                   className="flex w-full items-center rounded-lg px-3 py-2.5 text-sm font-medium text-destructive transition-colors duration-200 hover:bg-destructive/10"
                 >
                   <LogOut className="mr-3 h-4 w-4" />
-                  Sign out
+                  Шығу
                 </button>
               </>
             ) : (
@@ -224,7 +224,7 @@ export default function DashboardLayout({
                 className="flex items-center rounded-lg px-3 py-2.5 text-sm font-medium text-foreground transition-colors duration-200 hover:bg-accent/50"
               >
                 <LogIn className="mr-3 h-4 w-4" />
-                Sign in
+                Кіру
               </Link>
             )}
           </div>
@@ -245,22 +245,22 @@ export const dashboardConfig = {
   mainNav: [],
   sidebarNav: [
     {
-      title: "Chat",
+      title: "Чат",
       href: "/",
       icon: "messageSquare",
     },
     {
-      title: "Knowledge Base",
+      title: "Білім қоры",
       href: "/knowledge",
       icon: "database",
     },
     {
-      title: "My Library",
+      title: "Менің кітапханам",
       href: "/library",
       icon: "library",
     },
     {
-      title: "Settings",
+      title: "Баптаулар",
       href: "/settings",
       icon: "slidersHorizontal",
     },

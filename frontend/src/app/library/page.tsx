@@ -26,6 +26,13 @@ interface LibraryTask {
   error_message: string | null;
 }
 
+const TASK_STATUS_LABELS: Record<string, string> = {
+  pending: "кезекте",
+  processing: "өңделіп жатыр",
+  completed: "аяқталды",
+  failed: "сәтсіз аяқталды",
+};
+
 function fileIcon(contentType: string, fileName: string) {
   const ext = (fileName.split(".").pop() ?? "").toLowerCase();
   if (contentType.includes("pdf") || ext === "pdf") {
@@ -58,7 +65,7 @@ export default function LibraryPage() {
     } catch (error) {
       if (error instanceof ApiError) {
         toast({
-          title: "Error",
+          title: "Қате",
           description: error.message,
           variant: "destructive",
         });
@@ -108,15 +115,15 @@ export default function LibraryPage() {
         message?: string;
       };
       toast({
-        title: "Upload queued",
-        description: result.message || `${file.name} is being processed.`,
+        title: "Жүктеу кезекке қойылды",
+        description: result.message || `${file.name} файлы өңделіп жатыр.`,
       });
       await loadLibrary();
     } catch (error) {
       const message =
-        error instanceof ApiError ? error.message : "Upload failed";
+        error instanceof ApiError ? error.message : "Жүктеу сәтсіз аяқталды";
       toast({
-        title: "Upload failed",
+        title: "Жүктеу сәтсіз аяқталды",
         description: message,
         variant: "destructive",
       });
@@ -127,7 +134,7 @@ export default function LibraryPage() {
   };
 
   const handleDelete = async (docId: number) => {
-    if (!confirm("Delete this file from your library?")) {
+    if (!confirm("Бұл файлды кітапханаңыздан жойғыңыз келе ме?")) {
       return;
     }
 
@@ -135,14 +142,14 @@ export default function LibraryPage() {
       await api.delete(`/api/me/library/documents/${docId}`);
       setDocuments((current) => current.filter((doc) => doc.id !== docId));
       toast({
-        title: "Deleted",
-        description: "The document was removed from your library.",
+        title: "Жойылды",
+        description: "Құжат кітапханаңыздан өшірілді.",
       });
     } catch (error) {
       const message =
-        error instanceof ApiError ? error.message : "Delete failed";
+        error instanceof ApiError ? error.message : "Жою сәтсіз аяқталды";
       toast({
-        title: "Delete failed",
+        title: "Жою сәтсіз аяқталды",
         description: message,
         variant: "destructive",
       });
@@ -154,16 +161,16 @@ export default function LibraryPage() {
       <div className="mx-auto max-w-5xl space-y-6">
         <div className="flex flex-col gap-4 rounded-2xl border bg-card p-6 shadow-sm sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">My Library</h1>
+            <h1 className="text-3xl font-bold tracking-tight">Менің кітапханам</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              Upload personal `.docx` and `.pdf` files. These are searched
-              alongside the public knowledge base when you chat.
+              Жеке `.docx` және `.pdf` файлдарыңызды жүктеңіз. Чат кезінде
+              олар ашық білім қорымен бірге ізделеді.
             </p>
           </div>
           {user ? (
             <label className="inline-flex cursor-pointer items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
               <Upload className="mr-2 h-4 w-4" />
-              {uploading ? "Uploading..." : "Upload file"}
+              {uploading ? "Жүктеліп жатыр..." : "Файл жүктеу"}
               <input
                 type="file"
                 accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -178,7 +185,7 @@ export default function LibraryPage() {
               className="inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
             >
               <LogIn className="mr-2 h-4 w-4" />
-              Sign in to upload
+              Жүктеу үшін кіру
             </Link>
           )}
         </div>
@@ -189,10 +196,12 @@ export default function LibraryPage() {
               <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
                 <Library className="h-7 w-7" />
               </div>
-              <h2 className="mt-4 text-2xl font-semibold">My Library requires an account</h2>
+              <h2 className="mt-4 text-2xl font-semibold">
+                Менің кітапханам үшін аккаунт қажет
+              </h2>
               <p className="mt-3 text-sm text-muted-foreground">
-                Sign in or create an account to upload personal documents and use
-                them alongside the public knowledge base during chat.
+                Жеке құжаттарды жүктеп, чатта оларды ашық білім қорымен бірге
+                қолдану үшін жүйеге кіріңіз немесе тіркеліңіз.
               </p>
               <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
                 <Link
@@ -200,14 +209,14 @@ export default function LibraryPage() {
                   className="inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
                 >
                   <LogIn className="mr-2 h-4 w-4" />
-                  Sign in
+                  Кіру
                 </Link>
                 <Link
                   href="/register?next=/library"
                   className="inline-flex items-center justify-center rounded-lg border px-4 py-2 text-sm font-medium hover:bg-accent"
                 >
                   <UserPlus className="mr-2 h-4 w-4" />
-                  Create account
+                  Тіркелу
                 </Link>
               </div>
             </div>
@@ -216,7 +225,7 @@ export default function LibraryPage() {
 
         {user && tasks.length > 0 && (
           <div className="rounded-2xl border bg-card p-6 shadow-sm">
-            <h2 className="text-lg font-semibold">Processing</h2>
+            <h2 className="text-lg font-semibold">Өңделіп жатыр</h2>
             <div className="mt-4 space-y-3">
               {tasks.map((task) => (
                 <div
@@ -225,7 +234,7 @@ export default function LibraryPage() {
                 >
                   <div>
                     <div className="font-medium">
-                      {task.file_name || `Task #${task.task_id}`}
+                      {task.file_name || `Тапсырма #${task.task_id}`}
                     </div>
                     {task.error_message && (
                       <div className="mt-1 text-sm text-destructive">
@@ -237,7 +246,7 @@ export default function LibraryPage() {
                     {(task.status === "pending" || task.status === "processing") && (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     )}
-                    {task.status}
+                    {TASK_STATUS_LABELS[task.status] ?? task.status}
                   </div>
                 </div>
               ))}
@@ -247,13 +256,15 @@ export default function LibraryPage() {
 
         {user && (
           <div className="rounded-2xl border bg-card p-6 shadow-sm">
-            <h2 className="text-lg font-semibold">Documents</h2>
+            <h2 className="text-lg font-semibold">Құжаттар</h2>
 
             {loading ? (
-              <div className="py-10 text-sm text-muted-foreground">Loading library...</div>
+              <div className="py-10 text-sm text-muted-foreground">
+                Кітапхана жүктеліп жатыр...
+              </div>
             ) : documents.length === 0 ? (
               <div className="py-10 text-sm text-muted-foreground">
-                No personal documents yet.
+                Жеке құжаттар әлі жоқ.
               </div>
             ) : (
               <div className="mt-4 space-y-3">
@@ -277,7 +288,7 @@ export default function LibraryPage() {
                     <button
                       onClick={() => handleDelete(document.id)}
                       className="rounded-lg p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      aria-label={`Delete ${document.file_name}`}
+                      aria-label={`${document.file_name} файлын жою`}
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>

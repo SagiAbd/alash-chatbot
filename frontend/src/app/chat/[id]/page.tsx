@@ -140,8 +140,8 @@ export default function ChatPage({ params }: { params: { id: string } }) {
     headers: buildChatHeaders(),
     onError: (error: Error) => {
       toast({
-        title: "Error",
-        description: error.message || "Failed to get a response. Please try again.",
+        title: "Қате",
+        description: error.message || "Жауап алу сәтсіз аяқталды. Қайта байқап көріңіз.",
         variant: "destructive",
       });
     },
@@ -175,7 +175,7 @@ export default function ChatPage({ params }: { params: { id: string } }) {
       } catch (error) {
         if (error instanceof ApiError) {
           toast({
-            title: "Error",
+            title: "Қате",
             description: error.message,
             variant: "destructive",
           });

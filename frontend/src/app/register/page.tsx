@@ -109,7 +109,7 @@ export default function RegisterPage() {
                   htmlFor="email"
                   className="block text-sm font-medium text-gray-700"
                 >
-                  Email
+                  Электрондық пошта
                 </label>
                 <input
                   id="email"
@@ -118,7 +118,7 @@ export default function RegisterPage() {
                   required
                   disabled={loading}
                   className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
-                  placeholder="Email енгізіңіз"
+                  placeholder="Электрондық поштаны енгізіңіз"
                 />
               </div>
 

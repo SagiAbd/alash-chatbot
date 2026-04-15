@@ -29,9 +29,9 @@ export default function NewChatPage() {
         const message =
           error instanceof ApiError
             ? error.message
-            : "Unable to start a new chat right now.";
+            : "Қазір жаңа чатты бастау мүмкін болмады.";
         toast({
-          title: "Could not start chat",
+          title: "Чатты бастау мүмкін болмады",
           description: message,
           variant: "destructive",
         });
@@ -44,7 +44,7 @@ export default function NewChatPage() {
   return (
     <DashboardLayout>
       <div className="flex min-h-[70vh] items-center justify-center text-sm text-muted-foreground">
-        Starting a new chat...
+        Жаңа чат ашылып жатыр...
       </div>
     </DashboardLayout>
   );
