@@ -22,7 +22,7 @@ const TOOL_CONFIG: Record<
   get_author_works:      { label: "Автор шығармалары",     icon: Users },
   get_work_content:      { label: "Шығарма мәтіні",        icon: FileText },
   search_catalog:        { label: "Каталогта іздеу",       icon: Search },
-  search_pages:          { label: "Беттерде іздеу",        icon: Search },
+  read_pages:            { label: "Беттерді оқу",          icon: Search },
   search_terms:          { label: "Пәнсөздерін іздеу",     icon: BookOpen },
 };
 

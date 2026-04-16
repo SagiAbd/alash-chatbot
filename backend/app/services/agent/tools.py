@@ -3,7 +3,7 @@
 Tools combine:
 - metadata/title/author search over indexed documents
 - structured browsing (authors -> books -> works)
-- raw page search / direct page reading for verification
+- direct raw page reading for verification
 - Alash-era scientific term glossary lookup
 """
 
@@ -205,7 +205,8 @@ def build_kb_index(
     for doc in documents:
         analysis = doc.analysis or {}
         if analysis.get("type") == "glossary":
-            continue  # glossary xlsx docs are searched via search_terms, not the book index
+            # Glossary xlsx docs are searched via search_terms, not the book index.
+            continue
         metadata = analysis.get("metadata", {})
         author_name = metadata.get("main_author", "").strip() or "Белгісіз автор"
         book_title = metadata.get("book_title", "") or doc.file_name
@@ -671,37 +672,28 @@ def create_tools(db: Session, knowledge_base_ids: List[int]) -> list:
         return f"{header}\n{segment}{segment_info}"
 
     @tool
-    async def search_pages(
-        query: str = "",
+    async def read_pages(
         book_number: int = 0,
         work_number: int = 0,
         page_from: int = 0,
         page_to: int = 0,
         limit: int = 5,
-        full_content: bool = False,
     ) -> str:
-        """Search raw OCR-cleaned pages or read specific pages directly.
+        """Read raw OCR-cleaned pages directly for page-level verification.
 
-        Two modes:
-        - Search mode (query non-empty): returns ranked excerpts of matching pages.
-        - Read mode (query empty, page_from/page_to set): returns full content
-          of every page in the given range (book_number required).
-
-        Use this to verify quotes, names, dates, terms, and claims against the
-        original pages instead of only TOC-derived work boundaries.
+        Use this only after identifying the relevant book/work and page window
+        via catalog browsing or work-level reading. This tool is for verifying
+        exact quotes, names, dates, terms, and disputed claims against the
+        original cleaned page text.
 
         Args:
-            query: Text to search. Leave empty to read a specific page range directly.
-            book_number: Optional in search mode; required in read mode.
-            work_number: Optional work filter; limits pages to that work's range.
+            book_number: Book identifier to read pages from.
+            work_number: Optional work filter; also sets the book automatically.
             page_from: Optional lower page bound.
             page_to: Optional upper page bound.
-            limit: Maximum number of page hits to return (search mode only).
-            full_content: If True, return full page text instead of a short excerpt.
+            limit: Maximum number of pages to return.
         """
         limit = _clamp_limit(limit)
-        query = (query or "").strip()
-        read_mode = not query
 
         work: WorkInfo | None = None
         if work_number:
@@ -710,18 +702,12 @@ def create_tools(db: Session, knowledge_base_ids: List[int]) -> list:
                 return f"Шығарма #{work_number} табылмады."
             book_number = work.document_id
 
-        if read_mode and not book_number:
-            return (
-                "Бетті тікелей оқу үшін book_number (немесе work_number) қажет."
-            )
+        if not book_number:
+            return "Бетті оқу үшін book_number (немесе work_number) қажет."
 
-        if book_number:
-            book = index.books.get(book_number)
-            if book is None:
-                return f"Кітап #{book_number} табылмады."
-            books_to_search = [book]
-        else:
-            books_to_search = list(index.books.values())
+        book = index.books.get(book_number)
+        if book is None:
+            return f"Кітап #{book_number} табылмады."
 
         effective_page_from = page_from
         effective_page_to = page_to
@@ -735,90 +721,37 @@ def create_tools(db: Session, knowledge_base_ids: List[int]) -> list:
                     else work.end_page
                 )
 
-        if read_mode:
-            book = books_to_search[0]
-            pages = _load_raw_pages(book.document_id)
-            if not pages:
-                return (
-                    f'Кітап #{book.document_id}: "{book.title}" үшін '
-                    "шикі беттер табылмады."
-                )
+        pages = _load_raw_pages(book.document_id)
+        if not pages:
+            return (
+                f'Кітап #{book.document_id}: "{book.title}" үшін '
+                "шикі беттер табылмады."
+            )
 
-            selected = [
-                page
-                for page in pages
-                if (not effective_page_from or page.page_number >= effective_page_from)
-                and (not effective_page_to or page.page_number <= effective_page_to)
-            ]
-            if not selected:
-                return (
-                    f'Кітап #{book.document_id}: көрсетілген ауқымда '
-                    "бет табылмады."
-                )
+        selected = [
+            page
+            for page in pages
+            if (not effective_page_from or page.page_number >= effective_page_from)
+            and (not effective_page_to or page.page_number <= effective_page_to)
+        ]
+        if not selected:
+            return f'Кітап #{book.document_id}: көрсетілген ауқымда бет табылмады.'
 
-            lines = [f'Кітап #{book.document_id}: "{book.title}" — {book.author}']
-            for page in selected[:limit]:
-                works_for_page = _works_for_page(book, page.page_number)
-                works_str = (
-                    f" | Шығармалар: {', '.join(works_for_page[:2])}"
-                    if works_for_page
-                    else ""
-                )
-                lines.append(f"\n--- Бет {page.page_number}{works_str} ---")
-                lines.append(page.content)
-            if len(selected) > limit:
-                lines.append(
-                    f"\n[Көрсетілген: {limit}/{len(selected)} бет. "
-                    "Артығы керек болса, ауқымды тарылтыңыз.]"
-                )
-            return "\n".join(lines)
-
-        results: List[tuple[int, str]] = []
-
-        for book in books_to_search:
-            for page in _load_raw_pages(book.document_id):
-                if effective_page_from and page.page_number < effective_page_from:
-                    continue
-                if effective_page_to and page.page_number > effective_page_to:
-                    continue
-
-                score = _score_match(
-                    query,
-                    [page.content],
-                    [book.title, book.author, book.summary],
-                )
-                if score <= 0:
-                    continue
-
-                works_for_page = _works_for_page(book, page.page_number)
-                works_str = (
-                    f" | Шығармалар: {', '.join(works_for_page[:2])}"
-                    if works_for_page
-                    else ""
-                )
-                body = (
-                    page.content
-                    if full_content
-                    else _format_page_excerpt(page.content, query)
-                )
-                results.append(
-                    (
-                        score,
-                        f'Кітап #{book.document_id}: "{book.title}" | '
-                        f"Бет {page.page_number}{works_str}\n{body}",
-                    )
-                )
-
-        if not results:
-            return f'Сұраныс бойынша беттерден сәйкестік табылмады: "{query}".'
-
-        lines = [f'Бет іздеуі: "{query}"', "", "Үздік бет сәйкестіктері:"]
-        for rank, (_, line) in enumerate(
-            sorted(results, key=lambda item: (-item[0], item[1]))[:limit],
-            start=1,
-        ):
-            lines.append(f"{rank}. {line}")
-
+        lines = [f'Кітап #{book.document_id}: "{book.title}" — {book.author}']
+        for page in selected[:limit]:
+            works_for_page = _works_for_page(book, page.page_number)
+            works_str = (
+                f" | Шығармалар: {', '.join(works_for_page[:2])}"
+                if works_for_page
+                else ""
+            )
+            lines.append(f"\n--- Бет {page.page_number}{works_str} ---")
+            lines.append(page.content)
+        if len(selected) > limit:
+            lines.append(
+                f"\n[Көрсетілген: {limit}/{len(selected)} бет. "
+                "Артығы керек болса, ауқымды тарылтыңыз.]"
+            )
         return "\n".join(lines)
 
     @tool
@@ -916,9 +849,15 @@ def create_tools(db: Session, knowledge_base_ids: List[int]) -> list:
             if author_str:
                 entry.append(f"   Автор: {author_str}")
             if modern_def:
-                entry.append(f"   Анықтама: {modern_def}{'...' if len(meta.get('modern_definition') or '') > 200 else ''}")
+                modern_def_suffix = (
+                    "..."
+                    if len(meta.get("modern_definition") or "") > 200
+                    else ""
+                )
+                entry.append(f"   Анықтама: {modern_def}{modern_def_suffix}")
             if context_str:
-                entry.append(f"   Контекст: {context_str}{'...' if len(context_raw) > 200 else ''}")
+                context_suffix = "..." if len(context_raw) > 200 else ""
+                entry.append(f"   Контекст: {context_str}{context_suffix}")
             lines.append("\n".join(entry))
 
         return "\n\n".join(lines)
@@ -929,6 +868,6 @@ def create_tools(db: Session, knowledge_base_ids: List[int]) -> list:
         get_book_details,
         get_author_works,
         get_work_content,
-        search_pages,
+        read_pages,
         search_terms,
     ]

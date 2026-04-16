@@ -25,7 +25,7 @@ const TOOL_ACTION_KZ: Record<string, string> = {
   get_book_details: "Мәліметтер жинаудамын",
   get_author_works: "Мәліметтер жинаудамын",
   get_work_content: "Оқудамын",
-  search_pages: "Іздеудемін",
+  read_pages: "Беттерді ашып отырмын",
 };
 
 interface ChatMessage {

@@ -37,6 +37,7 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 - keep failed document-processing status visible after reload  
 - fix page extraction shadowing regression in document loading  
 - chatbot is lazy on tool calling.  
+- remove raw page keyword search and keep direct page reading only
 - recheck document loading and TOC extraction  
 - add AGENT_VERBOSE switch for full prompt logging  
 - prevent wrong internal id guessing after catalog search  
