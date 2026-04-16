@@ -28,6 +28,12 @@ class AgentPromptTests(unittest.TestCase):
 
         self.assertIn("сол автордың 2–3 шығармасын оқып шығыңыз", _SYSTEM_PROMPT)
 
+    def test_specific_claims_without_evidence_must_admit_uncertainty(self) -> None:
+        """Specific unsupported claims should produce an explicit uncertainty answer."""
+
+        self.assertIn("«Білмеймін» деп ашық жазыңыз", _SYSTEM_PROMPT)
+        self.assertIn("факт ойлап шығармаңыз", _SYSTEM_PROMPT)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -10,6 +10,7 @@
 - Tightened the agent system prompt for `Алаш стилінде` requests so it must first identify the intended figure, ask a short clarification when the target style is ambiguous, and read multiple source works before attempting an Alash-style answer
 - Added prompt-level regression coverage to keep the new Alash-style workflow in place during future prompt edits
 - Removed open-ended raw page keyword search from the agent toolset, replaced it with direct `read_pages` verification, and updated the prompt/UI so raw pages are used only after catalog/work discovery
+- Strengthened the agent prompt so unsupported specific claims now require an explicit `Білмеймін`/`Қолжетімді құжаттардан растай алмадым` response instead of guessing
 
 ## [2026-04-16]
 
