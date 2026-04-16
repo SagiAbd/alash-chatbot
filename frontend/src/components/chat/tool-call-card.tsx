@@ -23,7 +23,6 @@ const TOOL_CONFIG: Record<
   get_work_content:      { label: "Шығарма мәтіні",        icon: FileText },
   search_catalog:        { label: "Каталогта іздеу",       icon: Search },
   search_pages:          { label: "Беттерде іздеу",        icon: Search },
-  get_page_window:       { label: "Бет мазмұны",           icon: FileText },
   search_terms:          { label: "Пәнсөздерін іздеу",     icon: BookOpen },
 };
 

@@ -3,7 +3,8 @@
 Tools combine:
 - metadata/title/author search over indexed documents
 - structured browsing (authors -> books -> works)
-- raw page search and page-window inspection for verification
+- raw page search / direct page reading for verification
+- Alash-era scientific term glossary lookup
 """
 
 import json
@@ -13,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List
 
 from langchain_core.tools import tool
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -29,14 +30,30 @@ _NORMALIZE_RE = re.compile(r"[^\w\u0400-\u04FF]+", re.UNICODE)
 _NAME_SUFFIXES = (
     "ұлы",
     "улы",
+    "оглы",
+    "улу",
     "қызы",
     "кызы",
+    "қыз",
+    "тегі",
+    "теги",
     "ов",
     "ев",
     "ова",
     "ева",
     "ин",
     "ина",
+    "ский",
+    "ская",
+    "цкий",
+    "цкая",
+    "бек",
+    "бай",
+    "хан",
+    "жан",
+    "ali",
+    "али",
+    "гали",
 )
 
 
@@ -337,50 +354,100 @@ def create_tools(db: Session, knowledge_base_ids: List[int]) -> list:
         return excerpt + ("..." if len(content) > len(excerpt) else "")
 
     def _find_work_chunk(work: WorkInfo) -> DocumentChunk | None:
-        """Resolve the stored work chunk for a logical work entry."""
-        filters = [
+        """Resolve the stored work chunk for a logical work entry.
+
+        Tries in order:
+        1. Case-insensitive trimmed chunk_label match + page range.
+        2. Case-insensitive trimmed JSONB work_title match.
+        3. In-Python substring / normalized-token fallback.
+        """
+        normalized_title = work.title.strip().lower()
+        if not normalized_title:
+            return None
+
+        base_filter = [
             DocumentChunk.document_id == work.document_id,
             or_(DocumentChunk.chunk_type == "work", DocumentChunk.chunk_type.is_(None)),
-            DocumentChunk.chunk_label == work.title,
         ]
 
+        label_expr = func.lower(func.trim(DocumentChunk.chunk_label))
+
+        page_filters = []
         if work.start_page:
-            filters.append(
+            page_filters.append(
                 or_(
                     DocumentChunk.start_page == work.start_page,
                     DocumentChunk.start_page.is_(None),
                 )
             )
         if work.end_page:
-            filters.append(
+            page_filters.append(
                 or_(
                     DocumentChunk.end_page == work.end_page,
                     DocumentChunk.end_page.is_(None),
                 )
             )
 
+        if page_filters:
+            chunk = (
+                db.query(DocumentChunk)
+                .filter(*base_filter, label_expr == normalized_title, *page_filters)
+                .order_by(DocumentChunk.id.asc())
+                .first()
+            )
+            if chunk is not None:
+                return chunk
+
         chunk = (
             db.query(DocumentChunk)
-            .filter(*filters)
+            .filter(*base_filter, label_expr == normalized_title)
             .order_by(DocumentChunk.id.asc())
             .first()
         )
         if chunk is not None:
             return chunk
 
-        return (
+        jsonb_title = func.lower(
+            func.trim(DocumentChunk.chunk_metadata["work_title"].as_string())
+        )
+        chunk = (
             db.query(DocumentChunk)
-            .filter(
-                DocumentChunk.document_id == work.document_id,
-                or_(
-                    DocumentChunk.chunk_type == "work",
-                    DocumentChunk.chunk_type.is_(None),
-                ),
-                DocumentChunk.chunk_metadata["work_title"].as_string() == work.title,
-            )
+            .filter(*base_filter, jsonb_title == normalized_title)
             .order_by(DocumentChunk.id.asc())
             .first()
         )
+        if chunk is not None:
+            return chunk
+
+        normalized_query_title = _normalize_text(work.title)
+        candidates = (
+            db.query(DocumentChunk)
+            .filter(*base_filter)
+            .order_by(DocumentChunk.id.asc())
+            .all()
+        )
+        for candidate in candidates:
+            label = (candidate.chunk_label or "").strip().lower()
+            meta_title = (
+                (candidate.chunk_metadata or {}).get("work_title") or ""
+            ).strip().lower()
+
+            if label and (normalized_title in label or label in normalized_title):
+                return candidate
+            if meta_title and (
+                normalized_title in meta_title or meta_title in normalized_title
+            ):
+                return candidate
+
+            normalized_label = _normalize_text(label)
+            normalized_meta = _normalize_text(meta_title)
+            if normalized_query_title and (
+                normalized_query_title == normalized_label
+                or normalized_query_title == normalized_meta
+            ):
+                return candidate
+
+        return None
 
     def _works_for_page(book: BookInfo, page_number: int) -> List[str]:
         """Find work titles whose page ranges cover a raw page."""
@@ -605,28 +672,36 @@ def create_tools(db: Session, knowledge_base_ids: List[int]) -> list:
 
     @tool
     async def search_pages(
-        query: str,
+        query: str = "",
         book_number: int = 0,
         work_number: int = 0,
         page_from: int = 0,
         page_to: int = 0,
         limit: int = 5,
+        full_content: bool = False,
     ) -> str:
-        """Search raw OCR-cleaned pages with optional book/work/page filters.
+        """Search raw OCR-cleaned pages or read specific pages directly.
 
-        Use this to verify quotes, names, dates, terms, and claims that should
-        be checked against the original pages instead of only TOC-derived work
-        boundaries.
+        Two modes:
+        - Search mode (query non-empty): returns ranked excerpts of matching pages.
+        - Read mode (query empty, page_from/page_to set): returns full content
+          of every page in the given range (book_number required).
+
+        Use this to verify quotes, names, dates, terms, and claims against the
+        original pages instead of only TOC-derived work boundaries.
 
         Args:
-            query: Text, phrase, or keywords to search for.
-            book_number: Optional book/document number filter.
+            query: Text to search. Leave empty to read a specific page range directly.
+            book_number: Optional in search mode; required in read mode.
             work_number: Optional work filter; limits pages to that work's range.
             page_from: Optional lower page bound.
             page_to: Optional upper page bound.
-            limit: Maximum number of page hits to return.
+            limit: Maximum number of page hits to return (search mode only).
+            full_content: If True, return full page text instead of a short excerpt.
         """
         limit = _clamp_limit(limit)
+        query = (query or "").strip()
+        read_mode = not query
 
         work: WorkInfo | None = None
         if work_number:
@@ -634,6 +709,11 @@ def create_tools(db: Session, knowledge_base_ids: List[int]) -> list:
             if work is None:
                 return f"Шығарма #{work_number} табылмады."
             book_number = work.document_id
+
+        if read_mode and not book_number:
+            return (
+                "Бетті тікелей оқу үшін book_number (немесе work_number) қажет."
+            )
 
         if book_number:
             book = index.books.get(book_number)
@@ -654,6 +734,44 @@ def create_tools(db: Session, knowledge_base_ids: List[int]) -> list:
                     if effective_page_to
                     else work.end_page
                 )
+
+        if read_mode:
+            book = books_to_search[0]
+            pages = _load_raw_pages(book.document_id)
+            if not pages:
+                return (
+                    f'Кітап #{book.document_id}: "{book.title}" үшін '
+                    "шикі беттер табылмады."
+                )
+
+            selected = [
+                page
+                for page in pages
+                if (not effective_page_from or page.page_number >= effective_page_from)
+                and (not effective_page_to or page.page_number <= effective_page_to)
+            ]
+            if not selected:
+                return (
+                    f'Кітап #{book.document_id}: көрсетілген ауқымда '
+                    "бет табылмады."
+                )
+
+            lines = [f'Кітап #{book.document_id}: "{book.title}" — {book.author}']
+            for page in selected[:limit]:
+                works_for_page = _works_for_page(book, page.page_number)
+                works_str = (
+                    f" | Шығармалар: {', '.join(works_for_page[:2])}"
+                    if works_for_page
+                    else ""
+                )
+                lines.append(f"\n--- Бет {page.page_number}{works_str} ---")
+                lines.append(page.content)
+            if len(selected) > limit:
+                lines.append(
+                    f"\n[Көрсетілген: {limit}/{len(selected)} бет. "
+                    "Артығы керек болса, ауқымды тарылтыңыз.]"
+                )
+            return "\n".join(lines)
 
         results: List[tuple[int, str]] = []
 
@@ -678,12 +796,16 @@ def create_tools(db: Session, knowledge_base_ids: List[int]) -> list:
                     if works_for_page
                     else ""
                 )
-                excerpt = _format_page_excerpt(page.content, query)
+                body = (
+                    page.content
+                    if full_content
+                    else _format_page_excerpt(page.content, query)
+                )
                 results.append(
                     (
                         score,
                         f'Кітап #{book.document_id}: "{book.title}" | '
-                        f"Бет {page.page_number}{works_str}\n{excerpt}",
+                        f"Бет {page.page_number}{works_str}\n{body}",
                     )
                 )
 
@@ -696,50 +818,6 @@ def create_tools(db: Session, knowledge_base_ids: List[int]) -> list:
             start=1,
         ):
             lines.append(f"{rank}. {line}")
-
-        return "\n".join(lines)
-
-    @tool
-    async def get_page_window(
-        book_number: int,
-        page_number: int,
-        window: int = 0,
-    ) -> str:
-        """Read one raw page or a small page window around it.
-
-        Args:
-            book_number: The book/document number.
-            page_number: Raw page number to inspect.
-            window: Number of pages before/after to include.
-        """
-        book = index.books.get(book_number)
-        if book is None:
-            return f"Кітап #{book_number} табылмады."
-
-        pages = _load_raw_pages(book_number)
-        if not pages:
-            return f'Кітап #{book_number}: "{book.title}" үшін шикі беттер табылмады.'
-
-        window = max(0, min(window, 3))
-        start_page = page_number - window
-        end_page = page_number + window
-
-        selected = [
-            page for page in pages if start_page <= page.page_number <= end_page
-        ]
-        if not selected:
-            return f"Кітап #{book_number}: бет {page_number} табылмады."
-
-        lines = [f'Кітап #{book.document_id}: "{book.title}" — {book.author}']
-        for page in selected:
-            works_for_page = _works_for_page(book, page.page_number)
-            works_str = (
-                f" | Шығармалар: {', '.join(works_for_page[:2])}"
-                if works_for_page
-                else ""
-            )
-            lines.append(f"\n--- Бет {page.page_number}{works_str} ---")
-            lines.append(page.content)
 
         return "\n".join(lines)
 
@@ -852,6 +930,5 @@ def create_tools(db: Session, knowledge_base_ids: List[int]) -> list:
         get_author_works,
         get_work_content,
         search_pages,
-        get_page_window,
         search_terms,
     ]

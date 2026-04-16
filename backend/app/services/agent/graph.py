@@ -63,16 +63,26 @@ def _step_event(step: str, **kwargs: object) -> Dict:
     return {"type": "step", "step": step, **kwargs}
 
 
-def _summarize_tool_result(output: str, max_len: int = 120) -> str:
-    """Create a short summary of a tool result for the UI."""
-    lines = output.strip().splitlines()
-    if len(lines) <= 3:
-        summary = output.strip()
-    else:
-        summary = "\n".join(lines[:3]) + f"\n... ({len(lines)} жол)"
-    if len(summary) > max_len:
-        return summary[:max_len] + "..."
-    return summary
+_MAX_TOOL_CALL_ARGS_LEN = 80
+_MAX_TOOL_RESULT_SUMMARY_LEN = 120
+
+
+def _truncate(text: str, max_len: int) -> str:
+    """Truncate a string with ellipsis if it exceeds max_len."""
+    text = text.strip()
+    if len(text) <= max_len:
+        return text
+    return text[:max_len] + "…"
+
+
+def _summarize_tool_result(
+    output: str, max_len: int = _MAX_TOOL_RESULT_SUMMARY_LEN
+) -> str:
+    """Create a short single-line summary of a tool result for the UI."""
+    first_line = next(
+        (line for line in output.strip().splitlines() if line.strip()), ""
+    )
+    return _truncate(first_line, max_len)
 
 
 # ─── Entry Point ─────────────────────────────────────────────────────
@@ -156,8 +166,6 @@ async def run_turn(
             )
             if agent_iteration == 1:
                 yield _step_event("thinking", content="Сұрақты талдау...")
-            else:
-                yield _step_event("thinking", content="Нәтижелерді талдау...")
 
         # ── Tool call detected from LLM output ──────────────────
         if kind == "on_chat_model_end" and node == "agent":
@@ -179,7 +187,7 @@ async def run_turn(
                     yield _step_event(
                         "tool_call",
                         tool=tc["name"],
-                        args=args_str,
+                        args=_truncate(args_str, _MAX_TOOL_CALL_ARGS_LEN),
                     )
 
             else:
@@ -198,22 +206,18 @@ async def run_turn(
                     yield final_content
 
         # ── Tool execution completes ─────────────────────────────
+        # Emit a bare state-transition event (no summary) so the UI can flip
+        # the tool card from "calling" → "done" without extra payload.
         if kind == "on_tool_end":
             tool_name = event.get("name", "")
             output = event["data"].get("output", "")
-            output_str = str(output)
-            summary = _summarize_tool_result(output_str)
             turn_log.add_event(
-                "tool.result.stream",
-                "Tool result forwarded to stream",
+                "tool.result",
+                "Tool finished",
                 tool=tool_name,
-                summary=summary,
+                summary=_summarize_tool_result(str(output)),
             )
-            yield _step_event(
-                "tool_result",
-                tool=tool_name,
-                summary=summary,
-            )
+            yield _step_event("tool_result", tool=tool_name)
 
         # ── Stream final answer tokens ───────────────────────────
         if kind == "on_chat_model_stream" and node == "agent":

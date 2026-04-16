@@ -18,7 +18,6 @@ const TOOL_ACTION_KZ: Record<string, string> = {
   get_author_works:      "Мәліметтер жинаудамын",
   get_work_content:      "Оқудамын",
   search_pages:          "Іздеудемін",
-  get_page_window:       "Оқудамын",
 };
 
 // Backend streams step events as 8:[{...}] — AI SDK v4 maps code 8 to
