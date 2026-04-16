@@ -25,6 +25,53 @@ def make_page(page_number: int, text: str) -> LangchainDocument:
 
 
 class BookIndexerTests(unittest.TestCase):
+    def test_build_document_chunk_id_distinguishes_work_ranges(self) -> None:
+        """Work chunk IDs should not collide on shared titles/opening text."""
+
+        shared_text = "Shared opening text. " * 20
+
+        first = document_processor._build_document_chunk_id(
+            document_id=11,
+            chunk_type="work",
+            metadata={
+                "work_title": "Repeated Title",
+                "start_page": 5,
+                "end_page": 20,
+            },
+            page_content=shared_text,
+        )
+        second = document_processor._build_document_chunk_id(
+            document_id=11,
+            chunk_type="work",
+            metadata={
+                "work_title": "Repeated Title",
+                "start_page": 21,
+                "end_page": 35,
+            },
+            page_content=shared_text,
+        )
+
+        self.assertNotEqual(first, second)
+
+    def test_build_document_chunk_id_uses_full_content_hash_for_pages(self) -> None:
+        """Page chunk IDs should differ when only trailing text changes."""
+
+        shared_prefix = "A" * 220
+        first = document_processor._build_document_chunk_id(
+            document_id=11,
+            chunk_type="page",
+            metadata={"page_number": 120},
+            page_content=shared_prefix + "first ending",
+        )
+        second = document_processor._build_document_chunk_id(
+            document_id=11,
+            chunk_type="page",
+            metadata={"page_number": 120},
+            page_content=shared_prefix + "second ending",
+        )
+
+        self.assertNotEqual(first, second)
+
     def test_extract_pages_keeps_book_metadata(self) -> None:
         """Page extraction should use the book index metadata, not loop counters."""
 

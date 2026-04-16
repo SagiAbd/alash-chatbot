@@ -1,5 +1,11 @@
 # Changelog
 
+## [2026-04-17]
+
+### Fixed
+- Prevented `document_chunks` primary-key collisions during OCR uploads by generating document-scoped chunk IDs from canonical work/page metadata plus full content hashes instead of only titles and the first 200 characters
+- Added regression coverage for repeated work titles/shared opening text and long page chunks with identical prefixes so one `ocr.json` upload no longer fails on duplicate chunk inserts
+
 ## [2026-04-16]
 
 ### Improved

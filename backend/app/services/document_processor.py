@@ -6,6 +6,7 @@ through the book indexer to produce work-level and page-level retrieval records.
 """
 
 import hashlib
+import json
 import logging
 import os
 import time
@@ -326,6 +327,49 @@ def _analyze_book_pages(
     return book_index.model_dump(), work_docs, page_docs, final_file_name
 
 
+def _build_document_chunk_id(
+    document_id: int,
+    chunk_type: str,
+    metadata: dict[str, object],
+    page_content: str,
+) -> str:
+    """Create a deterministic chunk ID scoped to one stored document."""
+
+    identity = {
+        "document_id": document_id,
+        "chunk_type": chunk_type,
+        "work_title": metadata.get("work_title"),
+        "start_page": metadata.get("start_page"),
+        "end_page": metadata.get("end_page"),
+        "page_number": metadata.get("page_number"),
+        "content_hash": hashlib.sha256(page_content.encode("utf-8")).hexdigest(),
+    }
+    serialized_identity = json.dumps(
+        identity,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return hashlib.sha256(serialized_identity.encode("utf-8")).hexdigest()
+
+
+def _build_stored_chunk_hash(metadata: dict[str, object]) -> str:
+    """Build the persisted chunk hash from content plus canonical metadata."""
+
+    page_content = str(metadata.get("page_content") or "")
+    serialized_metadata = json.dumps(
+        metadata,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return hashlib.sha256(
+        f"{page_content}{serialized_metadata}".encode("utf-8")
+    ).hexdigest()
+
+
 def _persist_book_document(
     task: "ProcessingTask",
     db: Session,
@@ -393,18 +437,38 @@ def _persist_book_document(
     logger.info("Task %d: Document record created (id=%d)", task_id, document.id)
 
     t0 = time.monotonic()
-    for i, doc in enumerate(work_docs):
-        chunk_id = hashlib.sha256(
-            (
-                f"work:{kb_id}:{final_file_name}:"
-                f"{doc.metadata.get('work_title', i)}:{doc.page_content[:200]}"
-            ).encode()
-        ).hexdigest()
+    seen_chunk_ids: set[str] = set()
 
-        doc.metadata["kb_id"] = kb_id
-        doc.metadata["document_id"] = document.id
+    for i, doc in enumerate(work_docs):
+        base_metadata: dict[str, object] = {
+            **doc.metadata,
+            "kb_id": kb_id,
+            "document_id": document.id,
+            "chunk_type": "work",
+        }
+        chunk_id = _build_document_chunk_id(
+            document.id,
+            "work",
+            base_metadata,
+            doc.page_content,
+        )
+        if chunk_id in seen_chunk_ids:
+            logger.warning(
+                "Task %d: Skipping duplicate work chunk for document %d (%s)",
+                task_id,
+                document.id,
+                doc.metadata.get("work_title") or f"work #{i + 1}",
+            )
+            continue
+        seen_chunk_ids.add(chunk_id)
+
+        chunk_metadata = {
+            "page_content": doc.page_content,
+            **base_metadata,
+            "chunk_id": chunk_id,
+        }
+        doc.metadata.update(base_metadata)
         doc.metadata["chunk_id"] = chunk_id
-        doc.metadata["chunk_type"] = "work"
 
         db.add(
             DocumentChunk(
@@ -416,10 +480,8 @@ def _persist_book_document(
                 chunk_label=doc.metadata.get("work_title"),
                 start_page=doc.metadata.get("start_page"),
                 end_page=doc.metadata.get("end_page"),
-                chunk_metadata={"page_content": doc.page_content, **doc.metadata},
-                hash=hashlib.sha256(
-                    (doc.page_content + str(doc.metadata)).encode()
-                ).hexdigest(),
+                chunk_metadata=chunk_metadata,
+                hash=_build_stored_chunk_hash(chunk_metadata),
             )
         )
 
@@ -428,14 +490,35 @@ def _persist_book_document(
 
     for i, doc in enumerate(page_docs):
         page_number = int(doc.metadata.get("page_number", 0))
-        chunk_id = hashlib.sha256(
-            f"page:{kb_id}:{final_file_name}:{page_number}:{doc.page_content[:200]}".encode()
-        ).hexdigest()
+        base_metadata = {
+            **doc.metadata,
+            "kb_id": kb_id,
+            "document_id": document.id,
+            "chunk_type": "page",
+        }
+        chunk_id = _build_document_chunk_id(
+            document.id,
+            "page",
+            base_metadata,
+            doc.page_content,
+        )
+        if chunk_id in seen_chunk_ids:
+            logger.warning(
+                "Task %d: Skipping duplicate page chunk for document %d (page %d)",
+                task_id,
+                document.id,
+                page_number,
+            )
+            continue
+        seen_chunk_ids.add(chunk_id)
 
-        doc.metadata["kb_id"] = kb_id
-        doc.metadata["document_id"] = document.id
+        chunk_metadata = {
+            "page_content": doc.page_content,
+            **base_metadata,
+            "chunk_id": chunk_id,
+        }
+        doc.metadata.update(base_metadata)
         doc.metadata["chunk_id"] = chunk_id
-        doc.metadata["chunk_type"] = "page"
 
         db.add(
             DocumentChunk(
@@ -448,10 +531,8 @@ def _persist_book_document(
                 page_number=page_number,
                 start_page=page_number,
                 end_page=page_number,
-                chunk_metadata={"page_content": doc.page_content, **doc.metadata},
-                hash=hashlib.sha256(
-                    (doc.page_content + str(doc.metadata)).encode()
-                ).hexdigest(),
+                chunk_metadata=chunk_metadata,
+                hash=_build_stored_chunk_hash(chunk_metadata),
             )
         )
 
