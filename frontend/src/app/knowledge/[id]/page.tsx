@@ -49,6 +49,58 @@ type DocumentAnalysis = BookAnalysis | GlossaryAnalysis | null;
 
 type PublicDocument = PublicKnowledgeBase["documents"][number];
 
+const PRIORITY_AUTHOR_VARIANTS = [
+  ["akhmet", "ahmet", "akmet", "ахмет", "байтурсын", "байтурсын", "байтұрсын"],
+  ["alihan", "alikhan", "алихан", "әлихан", "bokeikhan", "bukeykhan", "бөкейхан", "букейхан"],
+  ["mirzhakyp", "mirjakyp", "миржакып", "міржақып", "dulatov", "дулатов"],
+] as const;
+
+function normalizeAuthor(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function getDocumentAuthor(document: PublicDocument): string {
+  const analysis = document.analysis ?? null;
+  if ((analysis as GlossaryAnalysis | null)?.type === "glossary") {
+    const glossary = analysis as GlossaryAnalysis;
+    return glossary.source_author?.trim() || glossary.authors?.[0]?.trim() || "";
+  }
+
+  const book = analysis as BookAnalysis | null;
+  return book?.metadata?.main_author?.trim() || "";
+}
+
+function getAuthorPriority(author: string): number {
+  const normalizedAuthor = normalizeAuthor(author);
+  if (!normalizedAuthor) {
+    return PRIORITY_AUTHOR_VARIANTS.length;
+  }
+
+  const matchIndex = PRIORITY_AUTHOR_VARIANTS.findIndex((variants) =>
+    variants.some((variant) => normalizedAuthor.includes(variant)),
+  );
+  return matchIndex === -1 ? PRIORITY_AUTHOR_VARIANTS.length : matchIndex;
+}
+
+function sortDocumentsByAuthorPriority(
+  documents: PublicDocument[],
+): PublicDocument[] {
+  return documents
+    .map((document, index) => ({
+      document,
+      index,
+      priority: getAuthorPriority(getDocumentAuthor(document)),
+    }))
+    .sort(
+      (left, right) => left.priority - right.priority || left.index - right.index,
+    )
+    .map((item) => item.document);
+}
+
 function buildDisplayTitle(document: PublicDocument): string {
   const analysis = document.analysis ?? null;
   const glossaryAnalysis =
@@ -160,8 +212,12 @@ export default function KnowledgeBaseDetailPage({
   }
 
   const documents = knowledgeBase?.documents ?? [];
-  const books = documents.filter((document) => !isGlossaryDocument(document));
-  const sheets = documents.filter((document) => isGlossaryDocument(document));
+  const books = sortDocumentsByAuthorPriority(
+    documents.filter((document) => !isGlossaryDocument(document)),
+  );
+  const sheets = sortDocumentsByAuthorPriority(
+    documents.filter((document) => isGlossaryDocument(document)),
+  );
 
   return (
     <DashboardLayout>

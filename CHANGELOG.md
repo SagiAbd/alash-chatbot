@@ -11,6 +11,8 @@
 - Added prompt-level regression coverage to keep the new Alash-style workflow in place during future prompt edits
 - Removed open-ended raw page keyword search from the agent toolset, replaced it with direct `read_pages` verification, and updated the prompt/UI so raw pages are used only after catalog/work discovery
 - Strengthened the agent prompt so unsupported specific claims now require an explicit `Білмеймін`/`Қолжетімді құжаттардан растай алмадым` response instead of guessing
+- Reordered guest/user public knowledge-base Books and Terms tabs so Ахмет appears first, Әлихан second, Міржақып third, while preserving the existing relative order for all other authors
+- Renamed the visible app branding from `Alash AI Assistant` to `Alash Science`
 
 ## [2026-04-16]
 

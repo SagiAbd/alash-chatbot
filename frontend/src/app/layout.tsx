@@ -8,7 +8,7 @@ import { Toaster } from "@/components/ui/toaster";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Alash AI Assistant",
+  title: "Alash Science",
   description: "Алаш ЖИ Көмекшісі және админдік басқару панелі",
 };
 

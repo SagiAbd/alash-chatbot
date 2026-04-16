@@ -39,6 +39,8 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 - chatbot is lazy on tool calling.  
 - remove raw page keyword search and keep direct page reading only
 - strengthen prompt to say "I don't know" when specific claims lack evidence
+- prioritize Ахмет, Әлихан, Міржақып first in public KB books and terms tabs
+- rename visible app branding from Alash AI Assistant to Alash Science
 - recheck document loading and TOC extraction  
 - add AGENT_VERBOSE switch for full prompt logging  
 - prevent wrong internal id guessing after catalog search  
