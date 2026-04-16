@@ -6,6 +6,10 @@
 - Prevented `document_chunks` primary-key collisions during OCR uploads by generating document-scoped chunk IDs from canonical work/page metadata plus full content hashes instead of only titles and the first 200 characters
 - Added regression coverage for repeated work titles/shared opening text and long page chunks with identical prefixes so one `ocr.json` upload no longer fails on duplicate chunk inserts
 
+### Changed
+- Tightened the agent system prompt for `Алаш стилінде` requests so it must first identify the intended figure, ask a short clarification when the target style is ambiguous, and read multiple source works before attempting an Alash-style answer
+- Added prompt-level regression coverage to keep the new Alash-style workflow in place during future prompt edits
+
 ## [2026-04-16]
 
 ### Improved
