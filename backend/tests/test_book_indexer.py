@@ -304,6 +304,52 @@ class BookIndexerTests(unittest.TestCase):
         third_input = mock_index_book.call_args_list[2].args[0]
         self.assertIn("First 15 pages:", third_input)
 
+    @patch("app.services.document_processor.extract_pages")
+    @patch("app.services.document_processor.extract_works")
+    @patch("app.services.document_processor.index_book")
+    @patch("app.services.document_processor.extract_book_metadata")
+    @patch("app.services.document_processor._collect_known_authors")
+    def test_analyze_book_pages_applies_alihan_page_offset(
+        self,
+        mock_collect_known_authors: MagicMock,
+        mock_extract_book_metadata: MagicMock,
+        mock_index_book: MagicMock,
+        mock_extract_works: MagicMock,
+        mock_extract_pages: MagicMock,
+    ) -> None:
+        """Alihan Bokeihan uploads should shift TOC-derived work pages by 16."""
+
+        mock_collect_known_authors.return_value = []
+        mock_extract_book_metadata.return_value = BookMetadataResult(
+            summary="summary",
+            metadata=BookMetadata(
+                book_title="Әлихан Бөкейхан шығармалары",
+                main_author="Әлихан Бөкейхан",
+            ),
+        )
+        mock_index_book.return_value = TOCSearchResult(
+            works=[WorkEntry(title="Work", start_page=45, end_page=50)],
+            toc=TOCEntry(title="Мазмұны", start_page=7, end_page=8),
+        )
+        mock_extract_works.return_value = [make_page(61, "Work body. " * 10)]
+        mock_extract_pages.return_value = [make_page(61, "Page body. " * 10)]
+
+        analysis, _, _, _ = document_processor._analyze_book_pages(
+            db=MagicMock(),
+            kb_id=1,
+            task_id=2,
+            file_name="ocr.json",
+            pages=[make_page(page, f"Body {page}") for page in range(1, 80)],
+            display_suffix=".json",
+        )
+
+        indexed_book = mock_extract_works.call_args.args[1]
+        self.assertEqual(61, indexed_book.works[0].start_page)
+        self.assertEqual(66, indexed_book.works[0].end_page)
+        self.assertEqual(16, analysis["page_offset"])
+        self.assertEqual(61, analysis["works"][0]["start_page"])
+        self.assertEqual(66, analysis["works"][0]["end_page"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -15,6 +15,7 @@ RAG-based chatbot platform with multi-provider LLM and vector store support.
 
 ### Done
 
+- hardcode Alihan Bokeihan TOC page offset on upload
 - make the agent support Alash-style answers only after reading source works
 - fix duplicate `document_chunks` primary keys for OCR uploads
 - allow admin KB uploads to reuse the `ocr.json` file name when content differs

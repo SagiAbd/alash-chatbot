@@ -24,11 +24,19 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.minio import get_minio_client
 from app.db.session import SessionLocal
-from app.models.knowledge import Document, DocumentChunk, KnowledgeBase, ProcessingTask
+from app.models.knowledge import (
+    Document,
+    DocumentChunk,
+    KnowledgeBase,
+    ProcessingTask,
+)
 from app.services.book_indexer import (
     AnalysisMode,
     BookIndex,
     BookIndexingError,
+    BookMetadata,
+    TOCSearchResult,
+    WorkEntry,
     build_analysis_input,
     build_metadata_input,
     clean_page_text,
@@ -58,6 +66,20 @@ BOOK_ANALYSIS_STRATEGIES: tuple[tuple[AnalysisMode, str], ...] = (
     ("candidate_toc", "candidate TOC pages"),
     ("last_pages", "last 15 pages"),
     ("first_pages", "first 15 pages"),
+)
+_ALIHAN_BOKEIHAN_PAGE_OFFSET = 16
+_ALIHAN_FIRST_NAME_VARIANTS: tuple[str, ...] = (
+    "әлихан",
+    "алихан",
+    "alihan",
+)
+_ALIHAN_LAST_NAME_VARIANTS: tuple[str, ...] = (
+    "бөкейхан",
+    "бокейхан",
+    "bokeihan",
+    "bokeikhan",
+    "bokeikhanov",
+    "bukeikhan",
 )
 
 
@@ -231,6 +253,60 @@ def _collect_known_authors(db: Session, kb_id: int, task_id: int) -> List[str]:
     return known_authors
 
 
+def _is_alihan_bokeihan_book(file_name: str, metadata: BookMetadata) -> bool:
+    """Return True when the uploaded book matches Alihan Bokeihan."""
+
+    candidates = [
+        file_name,
+        metadata.book_title,
+        metadata.main_author,
+        " ".join(
+            part
+            for part in (file_name, metadata.book_title, metadata.main_author)
+            if part
+        ),
+    ]
+
+    for candidate in candidates:
+        normalized = candidate.casefold()
+        has_first_name = any(
+            variant in normalized for variant in _ALIHAN_FIRST_NAME_VARIANTS
+        )
+        has_last_name = any(
+            variant in normalized for variant in _ALIHAN_LAST_NAME_VARIANTS
+        )
+        if has_first_name and has_last_name:
+            return True
+
+    return False
+
+
+def _apply_known_page_overrides(
+    file_name: str,
+    metadata: BookMetadata,
+    toc_result: TOCSearchResult,
+) -> int:
+    """Apply hardcoded upload-time page fixes for known books."""
+
+    if not _is_alihan_bokeihan_book(file_name, metadata):
+        return 0
+
+    toc_result.works = [
+        WorkEntry(
+            title=work.title,
+            start_page=work.start_page + _ALIHAN_BOKEIHAN_PAGE_OFFSET,
+            end_page=work.end_page + _ALIHAN_BOKEIHAN_PAGE_OFFSET,
+        )
+        for work in toc_result.works
+    ]
+    logger.info(
+        "Applying hardcoded page offset of +%d for Alihan Bokeihan upload %s",
+        _ALIHAN_BOKEIHAN_PAGE_OFFSET,
+        file_name,
+    )
+    return _ALIHAN_BOKEIHAN_PAGE_OFFSET
+
+
 def _analyze_book_pages(
     db: Session,
     kb_id: int,
@@ -293,6 +369,11 @@ def _analyze_book_pages(
     if toc_result is None:
         raise BookIndexingError(f"TOC find failed: {final_reason}")
 
+    page_offset = _apply_known_page_overrides(
+        file_name=file_name,
+        metadata=metadata_result.metadata,
+        toc_result=toc_result,
+    )
     book_index = BookIndex(
         summary=metadata_result.summary,
         metadata=metadata_result.metadata,
@@ -324,7 +405,11 @@ def _analyze_book_pages(
     else:
         final_file_name = file_name
 
-    return book_index.model_dump(), work_docs, page_docs, final_file_name
+    analysis = book_index.model_dump()
+    if page_offset:
+        analysis["page_offset"] = page_offset
+
+    return analysis, work_docs, page_docs, final_file_name
 
 
 def _build_document_chunk_id(
