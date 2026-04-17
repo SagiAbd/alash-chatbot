@@ -6,6 +6,7 @@
 - Prevented `document_chunks` primary-key collisions during OCR uploads by generating document-scoped chunk IDs from canonical work/page metadata plus full content hashes instead of only titles and the first 200 characters
 - Added regression coverage for repeated work titles/shared opening text and long page chunks with identical prefixes so one `ocr.json` upload no longer fails on duplicate chunk inserts
 - Hardcoded a `+16` TOC page offset for Alihan Bokeihan uploads so work ranges line up with the actual scanned pages during indexing and retrieval
+- Reduced `search_terms` latency by switching glossary ranking to a two-stage scorer: cheap term/author/field matching first, then expensive context scoring only on a short shortlist
 
 ### Changed
 - Tightened the agent system prompt for `Алаш стилінде` requests so it must first identify the intended figure, ask a short clarification when the target style is ambiguous, and read multiple source works before attempting an Alash-style answer

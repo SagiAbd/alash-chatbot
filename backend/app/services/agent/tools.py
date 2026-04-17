@@ -11,7 +11,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from langchain_core.tools import tool
 from sqlalchemy import func, or_
@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 _CHARS_PER_PAGE = 15_000
 _MAX_SEARCH_LIMIT = 10
+_TERM_SEARCH_CANDIDATE_LIMIT = 75
 _NORMALIZE_RE = re.compile(r"[^\w\u0400-\u04FF]+", re.UNICODE)
 _NAME_SUFFIXES = (
     "ұлы",
@@ -108,6 +109,14 @@ class KBIndex:
     author_by_name: Dict[str, int] = field(default_factory=dict)
 
 
+@dataclass
+class TermSearchCandidate:
+    """A glossary row that passed cheap scoring and may need deep scoring."""
+
+    cheap_score: int
+    meta: dict[str, Any]
+
+
 def _normalize_text(text: str) -> str:
     """Normalize text for lightweight fuzzy keyword matching."""
     cleaned = _NORMALIZE_RE.sub(" ", (text or "").lower())
@@ -184,6 +193,67 @@ def _score_match(
         score += _score_field(candidate, primary=False)
 
     return score
+
+
+def _rank_term_matches(
+    term_rows: List[tuple[str | None, dict[str, Any] | None]],
+    *,
+    query: str,
+    author: str = "",
+    field: str = "",
+    candidate_limit: int = _TERM_SEARCH_CANDIDATE_LIMIT,
+) -> List[tuple[int, dict[str, Any]]]:
+    """Rank glossary rows with cheap scoring first, then deep scoring on a shortlist."""
+
+    shortlist: List[TermSearchCandidate] = []
+
+    for chunk_label, raw_meta in term_rows:
+        meta = raw_meta or {}
+        chunk_author = str(meta.get("author", ""))
+        chunk_field = str(meta.get("field", ""))
+        alash_term = str(meta.get("alash_term", "") or chunk_label or "")
+        modern_term = str(meta.get("modern_term", ""))
+
+        if author and not _score_match(author, [chunk_author]):
+            continue
+        if field and not _score_match(field, [chunk_field]):
+            continue
+
+        cheap_score = _score_match(
+            query,
+            [alash_term, modern_term],
+            [chunk_field, chunk_author],
+        )
+        if cheap_score <= 0:
+            continue
+
+        shortlist.append(TermSearchCandidate(cheap_score=cheap_score, meta=meta))
+
+    if not shortlist:
+        return []
+
+    shortlisted_rows = sorted(
+        shortlist,
+        key=lambda candidate: (
+            -candidate.cheap_score,
+            str(candidate.meta.get("alash_term", "")),
+        ),
+    )[:candidate_limit]
+
+    ranked_results: List[tuple[int, dict[str, Any]]] = []
+    for candidate in shortlisted_rows:
+        context = str(candidate.meta.get("context", ""))
+        page_content = str(candidate.meta.get("page_content", ""))
+        expensive_score = _score_match(
+            query,
+            [],
+            [context, page_content],
+        )
+        ranked_results.append(
+            (candidate.cheap_score + expensive_score, candidate.meta)
+        )
+
+    return sorted(ranked_results, key=lambda item: -item[0])
 
 
 def build_kb_index(
@@ -782,7 +852,7 @@ def create_tools(db: Session, knowledge_base_ids: List[int]) -> list:
         limit = _clamp_limit(limit)
 
         term_chunks = (
-            db.query(DocumentChunk)
+            db.query(DocumentChunk.chunk_label, DocumentChunk.chunk_metadata)
             .filter(
                 DocumentChunk.kb_id.in_(knowledge_base_ids),
                 DocumentChunk.chunk_type == "term",
@@ -793,31 +863,15 @@ def create_tools(db: Session, knowledge_base_ids: List[int]) -> list:
         if not term_chunks:
             return "Білім қорында терминдер глоссарийі жоқ."
 
-        results: list[tuple[int, dict]] = []
-
-        for chunk in term_chunks:
-            meta = chunk.chunk_metadata or {}
-            chunk_author = meta.get("author", "")
-            chunk_field = meta.get("field", "")
-            alash_term = meta.get("alash_term", "") or chunk.chunk_label or ""
-            modern_term = meta.get("modern_term", "")
-            context = meta.get("context", "")
-            page_content = meta.get("page_content", "")
-
-            if author and not _score_match(author, [chunk_author]):
-                continue
-            if field and not _score_match(field, [chunk_field]):
-                continue
-
-            score = _score_match(
-                query,
-                [alash_term, modern_term],
-                [chunk_field, chunk_author, context, page_content],
-            )
-            if score <= 0:
-                continue
-
-            results.append((score, meta))
+        results = _rank_term_matches(
+            [
+                (row.chunk_label, row.chunk_metadata)
+                for row in term_chunks
+            ],
+            query=query,
+            author=author,
+            field=field,
+        )
 
         if not results:
             return f'Терминдер глоссарийінде сәйкестік табылмады: "{query}".'
